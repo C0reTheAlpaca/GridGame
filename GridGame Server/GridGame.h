@@ -1,0 +1,62 @@
+#pragma once
+#include "Serializer.h"
+#include "Server.h"
+#include "Player.h"
+#include "Field.h"
+#include <mutex>
+#include <ctime>
+#include <vector>
+#include <queue>
+
+typedef std::map<uint8_t, Player>::iterator PlayerIterator;
+
+enum NetDataType : int
+{
+	NET_UNKNOWN,
+	NET_CONNECT,
+	NET_CONNECT_ACK,
+	NET_LEAVE,
+	NET_MOVE,
+	NET_END_TURN,
+	NET_BROADCAST,
+	NET_GAME_DATA,
+};
+
+class GridGame
+{
+public:
+	GridGame(Server* pServer);
+	void Routine();
+	void Receive(Serializer::Data Data, Client Client);
+	void HandleConnect(Serializer::Data Data, Client Client);
+	void Disconnect(Client Client);
+	void Kick(Client Client);
+	void HandleLeave(PlayerIterator PlayerIt);
+	void HandleMove(Serializer::Data Data, PlayerIterator PlayerIt);
+	void HandleEndTurn(PlayerIterator PlayerIt);
+	void Run();
+	void PrepareGame();
+	void GenerateFood();
+	void TransmitGrid();
+	void StartNewTurn();
+
+	bool CheckConditions();
+	bool IsValidMove(int FromX, int FromY, int ToX, int ToY, PlayerIterator PlayerIt);
+	PlayerIterator GetPlayerFromIP(std::string IP);
+	PlayerIterator GetPlayerFromClient(Client Client);
+
+private:
+	bool m_GameRunning;
+	uint32_t m_GridWidth;
+	uint32_t m_GridHeight;
+	Player m_TurnPlayer;
+	Server* m_pServer;
+	std::time_t m_QueueStartTime;
+	std::time_t m_TurnStartTime;
+	std::mutex m_Mutex;
+	std::map<uint8_t, Player> m_Players;
+	std::vector<std::vector<Field>> m_Grid;
+};
+
+extern GridGame* g_pGridGame;
+

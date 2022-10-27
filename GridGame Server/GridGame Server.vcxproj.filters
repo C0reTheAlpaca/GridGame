@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Files">
+      <UniqueIdentifier>{534120f0-46c7-4778-b6f8-68de28df6541}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Server.h">
+      <Filter>Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DynamicBuffer.h">
+      <Filter>Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GridGame.h">
+      <Filter>Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Player.h">
+      <Filter>Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Serializer.h">
+      <Filter>Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Client.h">
+      <Filter>Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Field.h">
+      <Filter>Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Utility.h">
+      <Filter>Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Instruction.h">
+      <Filter>Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Server.cpp">
+      <Filter>Files</Filter>
+    </ClCompile>
+    <ClCompile Include="main.cpp">
+      <Filter>Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DynamicBuffer.cpp">
+      <Filter>Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GridGame.cpp">
+      <Filter>Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Player.cpp">
+      <Filter>Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Serializer.cpp">
+      <Filter>Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Field.cpp">
+      <Filter>Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>

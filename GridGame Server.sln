@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.2.32616.157
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GridGame Server", "GridGame Server\GridGame Server.vcxproj", "{D36AD028-050F-4BDF-BADA-8319D5C040AF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug (ASan)|x64 = Debug (ASan)|x64
+		Debug (ASan)|x86 = Debug (ASan)|x86
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Debug (ASan)|x64.ActiveCfg = Debug (ASan)|x64
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Debug (ASan)|x64.Build.0 = Debug (ASan)|x64
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Debug (ASan)|x86.ActiveCfg = Debug (ASan)|Win32
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Debug (ASan)|x86.Build.0 = Debug (ASan)|Win32
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Debug|x64.ActiveCfg = Debug|x64
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Debug|x64.Build.0 = Debug|x64
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Debug|x86.ActiveCfg = Debug|Win32
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Debug|x86.Build.0 = Debug|Win32
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Release|x64.ActiveCfg = Release|x64
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Release|x64.Build.0 = Release|x64
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Release|x86.ActiveCfg = Release|Win32
+		{D36AD028-050F-4BDF-BADA-8319D5C040AF}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E09B93DE-2B12-478E-A964-9DCE06F42093}
+	EndGlobalSection
+EndGlobal
