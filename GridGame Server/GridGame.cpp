@@ -18,8 +18,8 @@ GridGame::GridGame(Server* pServer)
 	m_QueueStartTime = 0;
 	m_pServer = pServer;
 	m_TurnStartTime = 0;
-	m_GridWidth = 100;
-	m_GridHeight = 100;
+	m_GridWidth = 25;
+	m_GridHeight = 25;
 
 	m_Grid.resize(m_GridWidth);
 
@@ -108,10 +108,11 @@ void GridGame::Routine()
 		// Start game if enough players & queue timer elapsed
 		if (Now - m_QueueStartTime > 5)
 		{
-			m_GameRunning = true;
-			m_QueueStartTime = 0;
 			PrepareGame();
-			StartNewTurn();
+			{
+				std::lock_guard LockGuard(m_Mutex);
+				StartNewTurn();
+			}
 			Run();
 		}
 	}
@@ -119,6 +120,9 @@ void GridGame::Routine()
 
 void GridGame::PrepareGame()
 {
+	m_GameRunning = true;
+	m_QueueStartTime = 0;
+
 	for (uint32_t x = 0; x < m_GridWidth; x++)
 	{
 		for (uint32_t y = 0; y < m_GridHeight; y++)
@@ -302,15 +306,16 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 		Player.second.m_WorkersAlive = 0;
 	}
 
-	// Set new worker count
 	for (uint32_t x = 0; x < m_GridWidth; x++)
 	{
 		for (uint32_t y = 0; y < m_GridHeight; y++)
 		{
-			Field Field = m_Grid[x][y];
-			
-			if (Field.m_FieldType == Field::FieldType::FIELD_WORKER && Field.m_OwnerID != FIELD_NO_OWNER)
-				m_Players[Field.m_OwnerID].m_WorkersAlive++;
+			Field* pField = &m_Grid[x][y];
+			pField->m_WasMoved = false;
+
+			// Set new worker count
+			if (pField->m_FieldType == Field::FieldType::FIELD_WORKER && pField->m_OwnerID != FIELD_NO_OWNER)
+				m_Players[pField->m_OwnerID].m_WorkersAlive++;
 		}
 	}
 
@@ -542,7 +547,7 @@ void GridGame::HandleMove(Serializer::Data Data, PlayerIterator PlayerIt)
 	uint32_t ToX = std::get<uint32_t>(Data.Values[3]);
 	uint32_t ToY = std::get<uint32_t>(Data.Values[4]);
 
-	if (!IsValidMove(FromX, FromY, ToX, ToY, PlayerIt))
+	if (!IsValidMove(ShouldSplit, FromX, FromY, ToX, ToY, PlayerIt))
 		return; // todo: notice player, kick, make lose?
 
 	Field* pFromField = &m_Grid[FromX][FromY];
@@ -552,11 +557,14 @@ void GridGame::HandleMove(Serializer::Data Data, PlayerIterator PlayerIt)
 
 	if (ShouldSplit)
 	{
-		pFromField->m_Power = (int)std::floor(pFromField->m_Power / 2.0);
+		int16_t Power = pFromField->m_Power;
+
+		pFromField->m_Power = (int)std::floor(Power / 2.0);
 
 		pMover->m_FieldType = Field::FieldType::FIELD_WORKER;
 		pMover->m_OwnerID = pFromField->m_OwnerID;
-		pMover->m_Power = (int)std::ceil(pFromField->m_Power / 2.0);
+		pMover->m_Power = (int)std::ceil(Power / 2.0);
+		pMover->m_WasMoved = true;
 	}
 	else 
 	{
@@ -571,6 +579,7 @@ void GridGame::HandleMove(Serializer::Data Data, PlayerIterator PlayerIt)
 	{
 		// Move
 		*pToField = *pMover;
+		pToField->m_WasMoved = true;
 
 		return;
 	}
@@ -581,6 +590,7 @@ void GridGame::HandleMove(Serializer::Data Data, PlayerIterator PlayerIt)
 		pToField->m_OwnerID = pMover->m_OwnerID;
 		pToField->m_Power = pMover->m_Power + pToField->m_Power;
 		pToField->m_FieldType = Field::FieldType::FIELD_WORKER;
+		pToField->m_WasMoved = true;
 
 		return;
 	}
@@ -590,8 +600,8 @@ void GridGame::HandleMove(Serializer::Data Data, PlayerIterator PlayerIt)
 		if (pToField->m_OwnerID == pMover->m_OwnerID)
 		{
 			// Move and merge
-			pToField->m_OwnerID = pMover->m_OwnerID; // todo: USELESS
-			pToField->m_Power = pMover->m_Power + pToField->m_Power;
+			pMover->m_Power += pToField->m_Power;
+			*pToField = *pMover;
 		}
 		else
 		{
@@ -603,14 +613,23 @@ void GridGame::HandleMove(Serializer::Data Data, PlayerIterator PlayerIt)
 			}
 
 			// Move and fight
-			pMover->m_Power = pMover->m_Power - pToField->m_Power;
-			pToField->m_Power = pToField->m_Power - pMover->m_Power;
-			pToField->m_OwnerID = (pMover->m_Power > pToField->m_Power ? pMover->m_OwnerID : pToField->m_OwnerID);
+			int MoverPower = pMover->m_Power;
+			int ToPower = pToField->m_Power;
+
+			pMover->m_Power = MoverPower - ToPower;
+			pToField->m_Power = ToPower - MoverPower;
+
+			if (pMover->m_Power > pToField->m_Power)
+				*pToField = *pMover;
+			else
+				*pMover = *pToField;
+
+			pToField->m_WasMoved = true;
 		}
 	}
 }
 
-bool GridGame::IsValidMove(int FromX, int FromY, int ToX, int ToY, PlayerIterator PlayerIt)
+bool GridGame::IsValidMove(bool Split, int FromX, int FromY, int ToX, int ToY, PlayerIterator PlayerIt)
 {
 	// Field is no worker
 	if (m_Grid[FromX][FromY].m_FieldType != Field::FieldType::FIELD_WORKER)
@@ -618,6 +637,14 @@ bool GridGame::IsValidMove(int FromX, int FromY, int ToX, int ToY, PlayerIterato
 
 	// Worker not owned by player
 	if (m_Grid[FromX][FromY].m_OwnerID != PlayerIt->second.m_ID)
+		return false;
+
+	// Worker already moved this turn
+	if (m_Grid[FromX][FromY].m_WasMoved)
+		return false;
+
+	// Can split
+	if (Split && m_Grid[FromX][FromY].m_Power < 2)
 		return false;
 
 	// Out of bounds

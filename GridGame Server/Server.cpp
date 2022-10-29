@@ -57,28 +57,50 @@ void Server::Start()
 
     std::cout << "Server started, waiting for connections...\n";
 
-    while (true) 
+    Routine();
+
+    delete m_pSerializer;
+}
+
+void Server::Routine()
+{
+    while (true)
     {
+        // Only allow 64 connections
+        while (m_Clients.size() >= 64)
+        {
+            Sleep(10);
+        }
+
         sockaddr_storage ClientAddress = { 0 };
         int Length = sizeof(ClientAddress);
 
         SOCKET ClientSocket = accept(m_Socket, (sockaddr*)&ClientAddress, &Length);
 
         if (ClientSocket == INVALID_SOCKET)
-        {
-            Sleep(10);
             continue;
-        }
-        
+
         Client NewClient(ClientSocket, GetClientIP(ClientSocket, &ClientAddress));
+
+        // Count concurrent connections of this client
+        int ConnectionCount = 0;
+
+        for (Client Client : m_Clients)
+        {
+            if (Client.m_IP == NewClient.m_IP)
+                ConnectionCount++;
+        }
+
+        // Only allow 2 concurrent connections per client
+        if (ConnectionCount >= 2)
+            ShutdownConnection(NewClient);
+
         std::lock_guard LockGuard(m_Mutex);
         std::thread NewThread = std::thread(&Server::HandleReceive, this, NewClient);
         NewThread.detach();
 
         m_Clients.push_back(NewClient);
     }
-
-    delete m_pSerializer;
 }
 
 std::string Server::GetClientIP(SOCKET ClientSocket, sockaddr_storage* pClientAddress)
@@ -143,7 +165,6 @@ void Server::HandleReceive(Client Client)
 
     do 
     {
-        Serializer::Data Data;
         Serializer::State State = Serializer::State::STATE_DEFAULT;
 
         // Receive data from stream
@@ -164,6 +185,7 @@ void Server::HandleReceive(Client Client)
         // Deserialize
         while (Buffer.GetSize() > 0 && State != Serializer::State::STATE_INCOMPLETE)
         {
+            Serializer::Data Data;
             State = Parser.Deserialize(&Buffer, &Data);
 
             // Handle data

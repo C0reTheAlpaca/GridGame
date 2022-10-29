@@ -41,7 +41,7 @@ public:
 	void StartNewTurn();
 
 	bool CheckConditions();
-	bool IsValidMove(int FromX, int FromY, int ToX, int ToY, PlayerIterator PlayerIt);
+	bool IsValidMove(bool Split, int FromX, int FromY, int ToX, int ToY, PlayerIterator PlayerIt);
 	PlayerIterator GetPlayerFromIP(std::string IP);
 	PlayerIterator GetPlayerFromClient(Client Client);
 

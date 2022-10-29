@@ -20,4 +20,5 @@ public:
 	FieldType m_FieldType;
 	uint8_t m_OwnerID;
 	int16_t m_Power;
+	bool m_WasMoved;
 };
