@@ -1,7 +1,7 @@
 #include "Serializer.h"
 #include "DynamicBuffer.h"
 
-Serializer::Serializer(const std::map<int, Instruction>* pInstructions)
+Serializer::Serializer(const std::map<NetDataType, Instruction>* pInstructions)
 {
 	m_State = State::STATE_DEFAULT;
 	m_pSerializeData = nullptr;
@@ -11,11 +11,11 @@ Serializer::Serializer(const std::map<int, Instruction>* pInstructions)
 	m_pInstructions = pInstructions;
 }
 
-void Serializer::SerializeSend(int Magic, Packet Data, SOCKET Socket)
+void Serializer::SerializeSend(Packet Packet, SOCKET Socket)
 {
-	std::size_t MagicSize = sizeof(Magic);
+	std::size_t MagicSize = sizeof(Packet.m_Magic);
 
-	auto InstructionIt = m_pInstructions->find(Magic);
+	auto InstructionIt = m_pInstructions->find(Packet.m_Magic);
 
 	if (InstructionIt == m_pInstructions->end())
 		return; // todo: Handle??
@@ -25,7 +25,7 @@ void Serializer::SerializeSend(int Magic, Packet Data, SOCKET Socket)
 	// Calculate total bytes of packet
 	std::size_t TotalPacketBytes = MagicSize;
 
-	for (Variant Variant : Data)
+	for (PacketData Variant : Packet.m_Data)
 	{
 		std::size_t Index = Variant.index();
 		TotalPacketBytes += m_DataSizes[Index];
@@ -38,26 +38,37 @@ void Serializer::SerializeSend(int Magic, Packet Data, SOCKET Socket)
 
 	m_pSerializeData = (char*)std::malloc(TotalPacketBytes);
 	m_pSerializePointer = m_pSerializeData;
-	
+
 	// Serialize magic
-	SerializeInt32(Variant(Magic));
+	SerializeUInt32(PacketData((uint32_t)Packet.m_Magic));
 
 	// Serialize data
-	for (auto& Value : Data)
+	for (std::vector<PacketData>::iterator It = Packet.m_Data.begin(); It != Packet.m_Data.end(); It++)
 	{
-		switch ((InstructionType)Value.index())
+		int Index = std::distance(Packet.m_Data.begin(), It);
+
+		// Check if begin of structure
+		if ((InstructionType)It->index() == InstructionType::TYPE_UINT32 &&
+			Instruction.m_StructSizeLookup.contains(Index))
 		{
-		case InstructionType::TYPE_INT8:   SerializeInt8(Value); break;
-		case InstructionType::TYPE_INT16:  SerializeInt16(Value); break;
-		case InstructionType::TYPE_INT32:  SerializeInt32(Value); break;
-		case InstructionType::TYPE_INT64:  SerializeInt64(Value); break;
-		case InstructionType::TYPE_UINT8:  SerializeUInt8(Value); break;
-		case InstructionType::TYPE_UINT16: SerializeUInt16(Value); break;
-		case InstructionType::TYPE_UINT32: SerializeUInt32(Value); break;
-		case InstructionType::TYPE_UINT64: SerializeUInt64(Value); break;
-		case InstructionType::TYPE_BOOL:   SerializeUInt8(Value); break;
-		case InstructionType::TYPE_DOUBLE: SerializeUInt64(Value); break;
-		case InstructionType::TYPE_STRING: SerializeString(Value); break;
+			// Serialize structure size
+			SerializeUInt32(Instruction.m_StructSizeLookup[Index]);
+			continue;
+		}
+
+		switch ((InstructionType)It->index())
+		{
+		case InstructionType::TYPE_INT8:   SerializeInt8(*It); break;
+		case InstructionType::TYPE_INT16:  SerializeInt16(*It); break;
+		case InstructionType::TYPE_INT32:  SerializeInt32(*It); break;
+		case InstructionType::TYPE_INT64:  SerializeInt64(*It); break;
+		case InstructionType::TYPE_UINT8:  SerializeUInt8(*It); break;
+		case InstructionType::TYPE_UINT16: SerializeUInt16(*It); break;
+		case InstructionType::TYPE_UINT32: SerializeUInt32(*It); break;
+		case InstructionType::TYPE_UINT64: SerializeUInt64(*It); break;
+		case InstructionType::TYPE_BOOL:   SerializeBool(*It); break;
+		case InstructionType::TYPE_DOUBLE: SerializeUInt64(*It); break;
+		case InstructionType::TYPE_STRING: SerializeString(*It); break;
 		default:
 			return;
 		}
@@ -70,46 +81,46 @@ void Serializer::SerializeSend(int Magic, Packet Data, SOCKET Socket)
 	free(m_pSerializeData);
 }
 
-Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Data* pData)
+Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacket)
 {
 	m_State = State::STATE_SUCCESS;
 
 	// Check of buffer contains magic
-	std::size_t MagicSize = sizeof(pData->Magic);
+	std::size_t MagicSize = sizeof(pPacket->m_Magic);
 
-	if (pBuffer->GetSize() < sizeof(pData->Magic))
+	if (pBuffer->GetSize() < sizeof(pPacket->m_Magic))
 		return State::STATE_INCOMPLETE;
 
 	m_pDeserializePointer = &pBuffer->m_Data.front();
 	m_pDeserializeEndPointer = m_pDeserializePointer + pBuffer->GetSize();
 
 	// Get magic
-	int32_t Magic = DeserializeUInt32();
+	NetDataType Magic = (NetDataType)DeserializeUInt32();
 
-	auto InstructionIt = m_pInstructions->find(Magic);
+	auto InstructionIt = m_pInstructions->find((NetDataType)Magic);
 
 	if (InstructionIt == m_pInstructions->end())
 		return State::STATE_ERROR;
 
 	Instruction Instruction = InstructionIt->second;
 
-	pData->Magic = Magic;
+	pPacket->m_Magic = Magic;
 
-	for (InstructionType Type : m_pInstructions->at(Magic))
+	for (InstructionType Type : m_pInstructions->at((NetDataType)Magic).m_Types)
 	{
 		switch (Type)
 		{
-		case InstructionType::TYPE_INT8: pData->Values.push_back(DeserializeInt8()); break;
-		case InstructionType::TYPE_INT16: pData->Values.push_back(DeserializeInt16()); break;
-		case InstructionType::TYPE_INT32: pData->Values.push_back(DeserializeInt32()); break;
-		case InstructionType::TYPE_INT64: pData->Values.push_back(DeserializeInt64()); break;
-		case InstructionType::TYPE_UINT8: pData->Values.push_back(DeserializeUInt8()); break;
-		case InstructionType::TYPE_UINT16: pData->Values.push_back(DeserializeUInt16()); break;
-		case InstructionType::TYPE_UINT32: pData->Values.push_back(DeserializeUInt32()); break;
-		case InstructionType::TYPE_UINT64: pData->Values.push_back(DeserializeUInt64()); break;
-		case InstructionType::TYPE_BOOL: pData->Values.push_back((bool)DeserializeInt8()); break;
-		case InstructionType::TYPE_DOUBLE: pData->Values.push_back(DeserializeDouble()); break;
-		case InstructionType::TYPE_STRING: pData->Values.push_back(DeserializeString()); break;
+		case InstructionType::TYPE_INT8: pPacket->m_Data.push_back(DeserializeInt8()); break;
+		case InstructionType::TYPE_INT16: pPacket->m_Data.push_back(DeserializeInt16()); break;
+		case InstructionType::TYPE_INT32: pPacket->m_Data.push_back(DeserializeInt32()); break;
+		case InstructionType::TYPE_INT64: pPacket->m_Data.push_back(DeserializeInt64()); break;
+		case InstructionType::TYPE_UINT8: pPacket->m_Data.push_back(DeserializeUInt8()); break;
+		case InstructionType::TYPE_UINT16: pPacket->m_Data.push_back(DeserializeUInt16()); break;
+		case InstructionType::TYPE_UINT32: pPacket->m_Data.push_back(DeserializeUInt32()); break;
+		case InstructionType::TYPE_UINT64: pPacket->m_Data.push_back(DeserializeUInt64()); break;
+		case InstructionType::TYPE_BOOL: pPacket->m_Data.push_back((bool)DeserializeInt8()); break;
+		case InstructionType::TYPE_DOUBLE: pPacket->m_Data.push_back(DeserializeDouble()); break;
+		case InstructionType::TYPE_STRING: pPacket->m_Data.push_back(DeserializeString()); break;
 		}
 
 		/// Check if data is incomplete
@@ -221,7 +232,7 @@ uint64_t Serializer::DeserializeUInt64()
 		(uint64_t)((uint8_t)m_pDeserializePointer[3]) << 32 |
 		(uint64_t)((uint8_t)m_pDeserializePointer[4]) << 24 |
 		(uint64_t)((uint8_t)m_pDeserializePointer[5]) << 16 |
-		(uint64_t)((uint8_t)m_pDeserializePointer[6]) << 8  |
+		(uint64_t)((uint8_t)m_pDeserializePointer[6]) << 8 |
 		(uint64_t)((uint8_t)m_pDeserializePointer[7])
 	);
 
@@ -256,7 +267,7 @@ std::string Serializer::DeserializeString()
 	return Value;
 }
 
-void Serializer::SerializeInt8(Variant Value)
+void Serializer::SerializeInt8(PacketData Value)
 {
 	int8_t Data = std::get<int8_t>(Value);
 
@@ -264,7 +275,7 @@ void Serializer::SerializeInt8(Variant Value)
 	m_pSerializePointer += sizeof(int8_t);
 }
 
-void Serializer::SerializeInt16(Variant Value)
+void Serializer::SerializeInt16(PacketData Value)
 {
 	int16_t Data = std::get<int16_t>(Value);
 
@@ -273,7 +284,7 @@ void Serializer::SerializeInt16(Variant Value)
 	m_pSerializePointer += sizeof(int16_t);
 }
 
-void Serializer::SerializeInt32(Variant Value)
+void Serializer::SerializeInt32(PacketData Value)
 {
 	int32_t Data = std::get<int32_t>(Value);
 
@@ -284,7 +295,7 @@ void Serializer::SerializeInt32(Variant Value)
 	m_pSerializePointer += sizeof(int32_t);
 }
 
-void Serializer::SerializeInt64(Variant Value)
+void Serializer::SerializeInt64(PacketData Value)
 {
 	int64_t Data = std::get<int64_t>(Value);
 
@@ -299,7 +310,7 @@ void Serializer::SerializeInt64(Variant Value)
 	m_pSerializePointer += sizeof(int64_t);
 }
 
-void Serializer::SerializeUInt8(Variant Value)
+void Serializer::SerializeUInt8(PacketData Value)
 {
 	uint8_t Data = std::get<uint8_t>(Value);
 
@@ -307,7 +318,7 @@ void Serializer::SerializeUInt8(Variant Value)
 	m_pSerializePointer += sizeof(uint8_t);
 }
 
-void Serializer::SerializeUInt16(Variant Value)
+void Serializer::SerializeUInt16(PacketData Value)
 {
 	uint16_t Data = std::get<uint16_t>(Value);
 
@@ -316,7 +327,7 @@ void Serializer::SerializeUInt16(Variant Value)
 	m_pSerializePointer += sizeof(uint16_t);
 }
 
-void Serializer::SerializeUInt32(Variant Value)
+void Serializer::SerializeUInt32(PacketData Value)
 {
 	uint32_t Data = std::get<uint32_t>(Value);
 
@@ -327,7 +338,7 @@ void Serializer::SerializeUInt32(Variant Value)
 	m_pSerializePointer += sizeof(uint32_t);
 }
 
-void Serializer::SerializeUInt64(Variant Value)
+void Serializer::SerializeUInt64(PacketData Value)
 {
 	uint64_t Data = std::get<uint64_t>(Value);
 
@@ -342,7 +353,7 @@ void Serializer::SerializeUInt64(Variant Value)
 	m_pSerializePointer += sizeof(uint64_t);
 }
 
-void Serializer::SerializeDouble(Variant Value)
+void Serializer::SerializeDouble(PacketData Value)
 {
 	double get = std::get<double>(Value);
 	uint64_t Data = *(uint64_t*)&get;
@@ -358,13 +369,21 @@ void Serializer::SerializeDouble(Variant Value)
 	m_pSerializePointer += sizeof(uint64_t);
 }
 
-void Serializer::SerializeString(Variant Value)
+void Serializer::SerializeString(PacketData Value)
 {
 	std::string Data = std::get<std::string>(Value);
 
 	uint32_t Length = (uint32_t)Data.length();
-	SerializeUInt32(Variant(Length));
+	SerializeUInt32(PacketData(Length));
 	std::copy(Data.begin(), Data.end(), m_pSerializePointer);
 
 	m_pSerializePointer += Length * sizeof(char);
+}
+
+void Serializer::SerializeBool(PacketData Value)
+{
+	bool Data = std::get<bool>(Value);
+
+	m_pSerializePointer[0] = (uint8_t)Data;
+	m_pSerializePointer += sizeof(uint8_t);
 }

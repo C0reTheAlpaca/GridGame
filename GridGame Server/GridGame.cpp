@@ -36,20 +36,12 @@ GridGame::GridGame(Server* pServer)
 		InstructionType::TYPE_UINT8, // Player ID
 	};
 
-	Instruction Leave = {
-
-	};
-
 	Instruction Move = {
-		InstructionType::TYPE_BOOL,  // Should split
+		InstructionType::TYPE_BOOL,   // Should split
 		InstructionType::TYPE_UINT32, // From X
 		InstructionType::TYPE_UINT32, // From Y
 		InstructionType::TYPE_UINT32, // To X
 		InstructionType::TYPE_UINT32, // To Y
-	};
-
-	Instruction EndTurn = {
-
 	};
 
 	Instruction Broadcast = {
@@ -57,28 +49,25 @@ GridGame::GridGame(Server* pServer)
 	};
 
 	Instruction GameData = {
-		InstructionType::TYPE_UINT8, // Turn player ID
+		InstructionType::TYPE_UINT8,  // Turn player ID
 		InstructionType::TYPE_INT64,  // Time epoch move timeout
 		InstructionType::TYPE_UINT32, // Grid width
 		InstructionType::TYPE_UINT32, // Grid height
-		InstructionType::TYPE_UINT32, // Grid field count
-	};
-
-	for (uint32_t x = 0; x < m_GridWidth; x++)
-	{
-		for (uint32_t y = 0; y < m_GridHeight; y++)
-		{
-			GameData.push_back(InstructionType::TYPE_UINT8); // Type ID
-			GameData.push_back(InstructionType::TYPE_UINT8); // Owner ID
-			GameData.push_back(InstructionType::TYPE_INT16); // Power
+		InstructionStructure {
+			m_GridWidth * m_GridHeight,
+			{
+				InstructionType::TYPE_UINT8,  // Type ID
+				InstructionType::TYPE_UINT8,  // Owner ID
+				InstructionType::TYPE_INT16   // Power
+			}
 		}
-	}
+	};
 
 	pServer->RegisterInstruction(NetDataType::NET_CONNECT, Connect);
 	pServer->RegisterInstruction(NetDataType::NET_CONNECT_ACK, ConnectAck);
-	pServer->RegisterInstruction(NetDataType::NET_LEAVE, Leave);
+	pServer->RegisterInstruction(NetDataType::NET_LEAVE, Instruction());
 	pServer->RegisterInstruction(NetDataType::NET_MOVE, Move);
-	pServer->RegisterInstruction(NetDataType::NET_END_TURN, EndTurn);
+	pServer->RegisterInstruction(NetDataType::NET_END_TURN, Instruction());
 	pServer->RegisterInstruction(NetDataType::NET_BROADCAST, Broadcast);
 	pServer->RegisterInstruction(NetDataType::NET_GAME_DATA, GameData);
 }
@@ -154,7 +143,7 @@ void GridGame::PrepareGame()
 void GridGame::GenerateFood()
 {
 	// Generate food
-	for (int i = 0; i < m_Players.size() * 2; i++)
+	for (int i = 0; i < m_Players.size() * 10; i++)
 	{
 		uint32_t x, y;
 
@@ -213,11 +202,10 @@ bool GridGame::CheckConditions()
 			Player.second.m_HasLostGame = true;
 			std::string Message = std::format("Player [{}] lost the game.", Player.second.m_Name);
 
-			Packet Broadcast;
+			Packet Broadcast(NetDataType::NET_BROADCAST);
 			Broadcast.push_back(Message);
 
 			m_pServer->GetSerializer()->SerializeSend(
-				NetDataType::NET_BROADCAST,
 				Broadcast,
 				Player.second.m_Client.m_Socket
 			);
@@ -233,13 +221,12 @@ bool GridGame::CheckConditions()
 	{
 		std::string Message = "The game ended in draw.";
 
-		Packet Broadcast;
+		Packet Broadcast(NetDataType::NET_BROADCAST);
 		Broadcast.push_back(Message);
 
 		for (auto& Player : m_Players)
 		{
 			m_pServer->GetSerializer()->SerializeSend(
-				NetDataType::NET_BROADCAST,
 				Broadcast,
 				Player.second.m_Client.m_Socket
 			);
@@ -257,11 +244,10 @@ bool GridGame::CheckConditions()
 			{
 				std::string Message = std::format("Player [{}] has won the game.", Player.second.m_Name);
 
-				Packet Broadcast;
+				Packet Broadcast(NetDataType::NET_BROADCAST);
 				Broadcast.push_back(Message);
 
 				m_pServer->GetSerializer()->SerializeSend(
-					NetDataType::NET_BROADCAST,
 					Broadcast,
 					Player.second.m_Client.m_Socket
 				);
@@ -292,7 +278,10 @@ void GridGame::StartNewTurn()
 	m_TurnPlayer = PlayerNextIt->second;
 	m_TurnStartTime = std::time(nullptr);
 
-	TransmitGrid();
+	for (auto& Player : m_Players)
+	{
+		TransmitGrid(Player.second);
+	}
 }
 
 void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
@@ -322,9 +311,9 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 	StartNewTurn();
 }
 
-void GridGame::TransmitGrid()
+void GridGame::TransmitGrid(Player Player)
 {
-	Packet Packet;
+	Packet Packet(NetDataType::NET_GAME_DATA);
 	Packet.push_back(m_TurnPlayer.m_ID);
 	Packet.push_back(m_TurnStartTime);
 	Packet.push_back(m_GridWidth);
@@ -341,15 +330,10 @@ void GridGame::TransmitGrid()
 		}
 	}
 
-	// Transmit
-	for (auto& Player : m_Players)
-	{
-		m_pServer->GetSerializer()->SerializeSend(
-			NetDataType::NET_GAME_DATA,
-			Packet,
-			Player.second.m_Client.m_Socket
-		);
-	}
+	m_pServer->GetSerializer()->SerializeSend(
+		Packet,
+		Player.m_Client.m_Socket
+	);
 }
 
 void GridGame::Kick(Client Client)
@@ -364,14 +348,13 @@ void GridGame::Kick(Client Client)
 	// Create message
 	std::string Message = std::format("Player [{}] has left the game.", Player.m_Name);
 
-	Packet Packet;
+	Packet Packet(NetDataType::NET_BROADCAST);
 	Packet.push_back(Message);
 
 	// Broadcast
 	for (const auto& Player : m_Players)
 	{
 		m_pServer->GetSerializer()->SerializeSend(
-			NetDataType::NET_BROADCAST,
 			Packet,
 			Player.second.m_Client.m_Socket
 		);
@@ -380,11 +363,11 @@ void GridGame::Kick(Client Client)
 	std::cout << std::format("Player [{}] send an invalid packet and was disconnected.", Player.m_Name) << std::endl;
 }
 
-void GridGame::Receive(Serializer::Data Data, Client Client)
+void GridGame::Receive(Packet Data, Client Client)
 {
 	std::lock_guard LockGuard(m_Mutex);
 
-	if (Data.Magic == NetDataType::NET_CONNECT)
+	if (Data.m_Magic == NetDataType::NET_CONNECT)
 	{
 		HandleConnect(Data, Client);
 		return;
@@ -395,7 +378,7 @@ void GridGame::Receive(Serializer::Data Data, Client Client)
 	if (PlayerIt == m_Players.end())
 		return;
 
-	switch (Data.Magic)
+	switch (Data.m_Magic)
 	{
 	case NetDataType::NET_LEAVE:
 		HandleLeave(PlayerIt);
@@ -424,14 +407,13 @@ void GridGame::Disconnect(Client Client)
 	// Create message
 	std::string Message = std::format("Player [{}] lost connection.", Player.m_Name);
 	
-	Packet Packet;
+	Packet Packet(NetDataType::NET_BROADCAST);
 	Packet.push_back(Message);
 
 	// Broadcast
 	for (const auto& Player : m_Players)
 	{
 		m_pServer->GetSerializer()->SerializeSend(
-			NetDataType::NET_BROADCAST,
 			Packet,
 			Player.second.m_Client.m_Socket
 		);
@@ -447,7 +429,7 @@ void GridGame::HandleLeave(PlayerIterator PlayerIt)
 	// Create message
 	std::string Message = std::format("Player [{}] has left the game.", Player.m_Name);
 
-	Packet Packet;
+	Packet Packet(NetDataType::NET_BROADCAST);
 	Packet.push_back(Message);
 
 	// Remove player
@@ -457,7 +439,6 @@ void GridGame::HandleLeave(PlayerIterator PlayerIt)
 	for (const auto& Player : m_Players)
 	{
 		m_pServer->GetSerializer()->SerializeSend(
-			NetDataType::NET_BROADCAST, 
 			Packet,
 			Player.second.m_Client.m_Socket
 		);
@@ -466,7 +447,7 @@ void GridGame::HandleLeave(PlayerIterator PlayerIt)
 	std::cout << Message << std::endl;;
 }
 
-void GridGame::HandleConnect(Serializer::Data Data, Client Client)
+void GridGame::HandleConnect(Packet PacketIn, Client Client)
 {
 	Player APlayer;
 	PlayerIterator PlayerIt = GetPlayerFromIP(Client.m_IP);
@@ -476,7 +457,7 @@ void GridGame::HandleConnect(Serializer::Data Data, Client Client)
 		return;
 
 	// Remove illegal chars from player name
-	std::string PlayerName = std::get<std::string>(Data.Values[0]);
+	std::string PlayerName = std::get<std::string>(PacketIn.m_Data[0]);
 
 	PlayerName.erase(std::remove_if(PlayerName.begin(), PlayerName.end(),
 		[](auto const& Char) -> bool { return !std::isalnum(Char); }), PlayerName.end()
@@ -509,43 +490,49 @@ void GridGame::HandleConnect(Serializer::Data Data, Client Client)
 	}
 
 	// Send player ID
-	Packet ConnectACK;
+	Packet ConnectACK(NetDataType::NET_CONNECT_ACK);
 	ConnectACK.push_back(APlayer.m_ID);
 
 	m_pServer->GetSerializer()->SerializeSend(
-		NetDataType::NET_CONNECT_ACK,
 		ConnectACK,
 		APlayer.m_Client.m_Socket
 	);
 
 	// Send connect message to all players
-	Packet Broadcast;
+	Packet Broadcast(NetDataType::NET_BROADCAST);
 	Broadcast.push_back(Message);
 
 	// Broadcast
 	for (const auto& Player : m_Players)
 	{
 		m_pServer->GetSerializer()->SerializeSend(
-			NetDataType::NET_BROADCAST,
 			Broadcast,
 			Player.second.m_Client.m_Socket
 		);
 	}
 
+	if (IsReconnect)
+	{
+		for (auto& Player : m_Players)
+		{
+			TransmitGrid(Player.second);
+		}
+	}
+
 	std::cout << Message << std::endl;
 }
 
-void GridGame::HandleMove(Serializer::Data Data, PlayerIterator PlayerIt)
+void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 {
 	// Ignore if this isnt the players turn
 	if (m_TurnPlayer != PlayerIt->second)
 		return;
 
-	bool ShouldSplit = std::get<bool>(Data.Values[0]);
-	uint32_t FromX = std::get<uint32_t>(Data.Values[1]);
-	uint32_t FromY = std::get<uint32_t>(Data.Values[2]);
-	uint32_t ToX = std::get<uint32_t>(Data.Values[3]);
-	uint32_t ToY = std::get<uint32_t>(Data.Values[4]);
+	bool ShouldSplit = std::get<bool>(Packet.m_Data[0]);
+	uint32_t FromX = std::get<uint32_t>(Packet.m_Data[1]);
+	uint32_t FromY = std::get<uint32_t>(Packet.m_Data[2]);
+	uint32_t ToX = std::get<uint32_t>(Packet.m_Data[3]);
+	uint32_t ToY = std::get<uint32_t>(Packet.m_Data[4]);
 
 	if (!IsValidMove(ShouldSplit, FromX, FromY, ToX, ToY, PlayerIt))
 		return; // todo: notice player, kick, make lose?

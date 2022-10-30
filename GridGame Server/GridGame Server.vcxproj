@@ -31,6 +31,7 @@
     <ClInclude Include="Field.h" />
     <ClInclude Include="GridGame.h" />
     <ClInclude Include="Instruction.h" />
+    <ClInclude Include="Packet.h" />
     <ClInclude Include="Serializer.h" />
     <ClInclude Include="Player.h" />
     <ClInclude Include="DynamicBuffer.h" />

@@ -91,8 +91,8 @@ void Server::Routine()
                 ConnectionCount++;
         }
 
-        // Only allow 2 concurrent connections per client
-        if (ConnectionCount >= 2)
+        // Only allow 4 concurrent connections per client
+        if (ConnectionCount >= 4)
             ShutdownConnection(NewClient);
 
         std::lock_guard LockGuard(m_Mutex);
@@ -146,7 +146,7 @@ void Server::ShutdownConnection(Client Client)
     closesocket(Client.m_Socket);
 }
 
-void Server::RegisterInstruction(int ID, Instruction Instruction)
+void Server::RegisterInstruction(NetDataType ID, Instruction Instruction)
 {
     m_Instructions[ID] = Instruction;
 }
@@ -185,8 +185,8 @@ void Server::HandleReceive(Client Client)
         // Deserialize
         while (Buffer.GetSize() > 0 && State != Serializer::State::STATE_INCOMPLETE)
         {
-            Serializer::Data Data;
-            State = Parser.Deserialize(&Buffer, &Data);
+            Packet Packet;
+            State = Parser.Deserialize(&Buffer, &Packet);
 
             // Handle data
             switch (State)
@@ -196,7 +196,7 @@ void Server::HandleReceive(Client Client)
                 ShutdownConnection(Client);
                 return;
             case Serializer::State::STATE_SUCCESS:
-                g_pGridGame->Receive(Data, Client); // todo: add callbacks
+                g_pGridGame->Receive(Packet, Client); // todo: add callbacks
                 break;
             }
         }

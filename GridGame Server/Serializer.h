@@ -5,10 +5,9 @@
 #include <variant>
 #include <winsock2.h>
 #include "Instruction.h"
+#include "Packet.h"
 
 class DynamicBuffer;
-typedef std::variant<int8_t, int16_t, int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t, bool, double, std::string> Variant;
-typedef std::vector<Variant> Packet;
 
 class Serializer
 {
@@ -19,12 +18,6 @@ public:
 		STATE_SUCCESS,
 		STATE_ERROR,
 		STATE_INCOMPLETE
-	};
-
-	struct Data
-	{
-		int Magic;
-		Packet Values;
 	};
 
 	std::vector<std::size_t> m_DataSizes = {
@@ -41,9 +34,9 @@ public:
 		sizeof(uint32_t),
 	};
 
-	Serializer(const std::map<int, Instruction> * pInstructions);
-	void SerializeSend(int Magic, Packet Values, SOCKET Socket);
-	State Deserialize(DynamicBuffer* pBuffer, Data* pData);
+	Serializer(const std::map<NetDataType, Instruction> * pInstructions);
+	void SerializeSend(Packet Values, SOCKET Socket);
+	State Deserialize(DynamicBuffer* pBuffer, Packet* pPacket);
 
 	int8_t DeserializeInt8();
 	int16_t DeserializeInt16();
@@ -56,16 +49,17 @@ public:
 	std::string DeserializeString();
 	double DeserializeDouble();
 
-	void SerializeInt8(Variant Value);
-	void SerializeInt16(Variant Value);
-	void SerializeInt32(Variant Value);
-	void SerializeInt64(Variant Value);
-	void SerializeUInt8(Variant Value);
-	void SerializeUInt16(Variant Value);
-	void SerializeUInt32(Variant Value);
-	void SerializeUInt64(Variant Value);
-	void SerializeDouble(Variant Value);
-	void SerializeString(Variant Value);
+	void SerializeInt8(PacketData Value);
+	void SerializeInt16(PacketData Value);
+	void SerializeInt32(PacketData Value);
+	void SerializeInt64(PacketData Value);
+	void SerializeUInt8(PacketData Value);
+	void SerializeUInt16(PacketData Value);
+	void SerializeUInt32(PacketData Value);
+	void SerializeUInt64(PacketData Value);
+	void SerializeDouble(PacketData Value);
+	void SerializeString(PacketData Value);
+	void SerializeBool(PacketData Value);
 
 private:
 	State m_State;
@@ -73,6 +67,6 @@ private:
 	char* m_pSerializePointer;
 	char* m_pDeserializePointer;
 	char* m_pDeserializeEndPointer;
-	const std::map<int, Instruction>* m_pInstructions;
+	const std::map<NetDataType, Instruction>* m_pInstructions;
 };
 

@@ -7,37 +7,26 @@
 #include <ctime>
 #include <vector>
 #include <queue>
+#include "Packet.h"
 
 typedef std::map<uint8_t, Player>::iterator PlayerIterator;
-
-enum NetDataType : int
-{
-	NET_UNKNOWN,
-	NET_CONNECT,
-	NET_CONNECT_ACK,
-	NET_LEAVE,
-	NET_MOVE,
-	NET_END_TURN,
-	NET_BROADCAST,
-	NET_GAME_DATA,
-};
 
 class GridGame
 {
 public:
 	GridGame(Server* pServer);
 	void Routine();
-	void Receive(Serializer::Data Data, Client Client);
-	void HandleConnect(Serializer::Data Data, Client Client);
+	void Receive(Packet Data, Client Client);
+	void HandleConnect(Packet Data, Client Client);
 	void Disconnect(Client Client);
 	void Kick(Client Client);
 	void HandleLeave(PlayerIterator PlayerIt);
-	void HandleMove(Serializer::Data Data, PlayerIterator PlayerIt);
+	void HandleMove(Packet Data, PlayerIterator PlayerIt);
 	void HandleEndTurn(PlayerIterator PlayerIt);
 	void Run();
 	void PrepareGame();
 	void GenerateFood();
-	void TransmitGrid();
+	void TransmitGrid(Player Player);
 	void StartNewTurn();
 
 	bool CheckConditions();

@@ -10,6 +10,7 @@
 #include <mutex>
 #include "Client.h"
 #include "Instruction.h"
+#include "Packet.h"
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -23,7 +24,7 @@ public:
     void HandleReceive(Client Client);
     void Routine();
     void ShutdownConnection(Client Client);
-    void RegisterInstruction(int ID, Instruction Instruction);
+    void RegisterInstruction(NetDataType ID, Instruction Instruction);
 
     Serializer* GetSerializer();
     std::string GetClientIP(SOCKET ClientSocket, sockaddr_storage* pClientAddress);
@@ -32,6 +33,6 @@ private:
     SOCKET m_Socket;
     Serializer* m_pSerializer;
     std::mutex m_Mutex;
-    std::map<int, Instruction> m_Instructions;
+    std::map<NetDataType, Instruction> m_Instructions;
     std::vector<Client> m_Clients;
 };
