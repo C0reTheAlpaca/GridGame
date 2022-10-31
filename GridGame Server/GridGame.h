@@ -35,13 +35,14 @@ public:
 	PlayerIterator GetPlayerFromClient(Client Client);
 
 private:
+	bool m_NewGame;
 	bool m_GameRunning;
 	uint32_t m_GridWidth;
 	uint32_t m_GridHeight;
 	Player m_TurnPlayer;
 	Server* m_pServer;
 	std::time_t m_QueueStartTime;
-	std::time_t m_TurnStartTime;
+	std::time_t m_TurnTimeout;
 	std::mutex m_Mutex;
 	std::map<uint8_t, Player> m_Players;
 	std::vector<std::vector<Field>> m_Grid;

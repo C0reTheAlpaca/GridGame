@@ -13,26 +13,29 @@ Serializer::Serializer(const std::map<NetDataType, Instruction>* pInstructions)
 
 void Serializer::SerializeSend(Packet Packet, SOCKET Socket)
 {
-	std::size_t MagicSize = sizeof(Packet.m_Magic);
-
+	// Get instruction
 	auto InstructionIt = m_pInstructions->find(Packet.m_Magic);
 
 	if (InstructionIt == m_pInstructions->end())
-		return; // todo: Handle??
+		return;
 
 	Instruction Instruction = InstructionIt->second;
 
 	// Calculate total bytes of packet
-	std::size_t TotalPacketBytes = MagicSize;
+	std::size_t TotalPacketBytes = sizeof(Packet.m_Magic);
 
-	for (PacketData Variant : Packet.m_Data)
+	for (auto It = Packet.m_Data   .begin(); It != Packet.m_Data.end(); It++)
 	{
-		std::size_t Index = Variant.index();
-		TotalPacketBytes += m_DataSizes[Index];
+		int Index = std::distance(Packet.m_Data.begin(), It);
+		std::size_t VariantIndex = It->index();
 
-		if ((InstructionType)Index == InstructionType::TYPE_STRING)
+		// Add bytes of type
+		TotalPacketBytes += m_DataSizes[VariantIndex];
+
+		// Add bytes of string
+		if ((InstructionType)VariantIndex == InstructionType::TYPE_STRING)
 		{
-			TotalPacketBytes += std::get<std::string>(Variant).length() * sizeof(char);
+			TotalPacketBytes += std::get<std::string>(*It).length() * sizeof(char);
 		}
 	}
 
@@ -43,19 +46,8 @@ void Serializer::SerializeSend(Packet Packet, SOCKET Socket)
 	SerializeUInt32(PacketData((uint32_t)Packet.m_Magic));
 
 	// Serialize data
-	for (std::vector<PacketData>::iterator It = Packet.m_Data.begin(); It != Packet.m_Data.end(); It++)
+	for (auto It = Packet.m_Data.begin(); It != Packet.m_Data.end(); It++)
 	{
-		int Index = std::distance(Packet.m_Data.begin(), It);
-
-		// Check if begin of structure
-		if ((InstructionType)It->index() == InstructionType::TYPE_UINT32 &&
-			Instruction.m_StructSizeLookup.contains(Index))
-		{
-			// Serialize structure size
-			SerializeUInt32(Instruction.m_StructSizeLookup[Index]);
-			continue;
-		}
-
 		switch ((InstructionType)It->index())
 		{
 		case InstructionType::TYPE_INT8:   SerializeInt8(*It); break;
@@ -85,9 +77,7 @@ Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacke
 {
 	m_State = State::STATE_SUCCESS;
 
-	// Check of buffer contains magic
-	std::size_t MagicSize = sizeof(pPacket->m_Magic);
-
+	// Check if buffer contains magic
 	if (pBuffer->GetSize() < sizeof(pPacket->m_Magic))
 		return State::STATE_INCOMPLETE;
 
@@ -96,7 +86,9 @@ Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacke
 
 	// Get magic
 	NetDataType Magic = (NetDataType)DeserializeUInt32();
+	pPacket->m_Magic = Magic;
 
+	// Get instruction
 	auto InstructionIt = m_pInstructions->find((NetDataType)Magic);
 
 	if (InstructionIt == m_pInstructions->end())
@@ -104,34 +96,59 @@ Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacke
 
 	Instruction Instruction = InstructionIt->second;
 
-	pPacket->m_Magic = Magic;
+	auto Types = m_pInstructions->at((NetDataType)Magic).m_Types;
 
-	for (InstructionType Type : m_pInstructions->at((NetDataType)Magic).m_Types)
+	for (auto It = Types.begin(); It != Types.end(); It++)
 	{
-		switch (Type)
+		int Index = std::distance(Types.begin(), It);
+
+		// Check if begin of structure
+		if (*It == InstructionType::TYPE_UINT32 &&
+			Instruction.m_StructLookup.contains(Index))
 		{
-		case InstructionType::TYPE_INT8: pPacket->m_Data.push_back(DeserializeInt8()); break;
-		case InstructionType::TYPE_INT16: pPacket->m_Data.push_back(DeserializeInt16()); break;
-		case InstructionType::TYPE_INT32: pPacket->m_Data.push_back(DeserializeInt32()); break;
-		case InstructionType::TYPE_INT64: pPacket->m_Data.push_back(DeserializeInt64()); break;
-		case InstructionType::TYPE_UINT8: pPacket->m_Data.push_back(DeserializeUInt8()); break;
-		case InstructionType::TYPE_UINT16: pPacket->m_Data.push_back(DeserializeUInt16()); break;
-		case InstructionType::TYPE_UINT32: pPacket->m_Data.push_back(DeserializeUInt32()); break;
-		case InstructionType::TYPE_UINT64: pPacket->m_Data.push_back(DeserializeUInt64()); break;
-		case InstructionType::TYPE_BOOL: pPacket->m_Data.push_back((bool)DeserializeInt8()); break;
-		case InstructionType::TYPE_DOUBLE: pPacket->m_Data.push_back(DeserializeDouble()); break;
-		case InstructionType::TYPE_STRING: pPacket->m_Data.push_back(DeserializeString()); break;
+			// Deserialize structure size
+			uint32_t StructCount = DeserializeUInt32();
+			pPacket->m_Data.push_back(StructCount);
+
+			for (int i = 0; i < StructCount; i++)
+			{
+				for (InstructionType Type : Instruction.m_StructLookup[Index])
+					PushData(*It, pPacket);
+			}
+
+			continue;
 		}
 
-		/// Check if data is incomplete
-		if (m_State == State::STATE_INCOMPLETE)
-			return m_State;
+		PushData(*It, pPacket);
 	}
 
 	pBuffer->Pop(m_pDeserializePointer - &pBuffer->m_Data.front());
 
 	return m_State;
 }
+
+Serializer::State Serializer::PushData(InstructionType Type, Packet* pPacket)
+{
+	switch (Type)
+	{
+	case InstructionType::TYPE_INT8: pPacket->m_Data.push_back(DeserializeInt8()); break;
+	case InstructionType::TYPE_INT16: pPacket->m_Data.push_back(DeserializeInt16()); break;
+	case InstructionType::TYPE_INT32: pPacket->m_Data.push_back(DeserializeInt32()); break;
+	case InstructionType::TYPE_INT64: pPacket->m_Data.push_back(DeserializeInt64()); break;
+	case InstructionType::TYPE_UINT8: pPacket->m_Data.push_back(DeserializeUInt8()); break;
+	case InstructionType::TYPE_UINT16: pPacket->m_Data.push_back(DeserializeUInt16()); break;
+	case InstructionType::TYPE_UINT32: pPacket->m_Data.push_back(DeserializeUInt32()); break;
+	case InstructionType::TYPE_UINT64: pPacket->m_Data.push_back(DeserializeUInt64()); break;
+	case InstructionType::TYPE_BOOL: pPacket->m_Data.push_back((bool)DeserializeInt8()); break;
+	case InstructionType::TYPE_DOUBLE: pPacket->m_Data.push_back(DeserializeDouble()); break;
+	case InstructionType::TYPE_STRING: pPacket->m_Data.push_back(DeserializeString()); break;
+	}
+
+	/// Check if data is incomplete
+	if (m_State == State::STATE_INCOMPLETE)
+		return m_State;
+}
+
 int8_t Serializer::DeserializeInt8()
 {
 	int8_t Value = DeserializeUInt8();

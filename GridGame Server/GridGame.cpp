@@ -14,10 +14,11 @@ GridGame* g_pGridGame = nullptr;
 
 GridGame::GridGame(Server* pServer)
 {
+	m_NewGame = true;
 	m_GameRunning = false;
 	m_QueueStartTime = 0;
 	m_pServer = pServer;
-	m_TurnStartTime = 0;
+	m_TurnTimeout = 0;
 	m_GridWidth = 25;
 	m_GridHeight = 25;
 
@@ -54,7 +55,6 @@ GridGame::GridGame(Server* pServer)
 		InstructionType::TYPE_UINT32, // Grid width
 		InstructionType::TYPE_UINT32, // Grid height
 		InstructionStructure {
-			m_GridWidth * m_GridHeight,
 			{
 				InstructionType::TYPE_UINT8,  // Type ID
 				InstructionType::TYPE_UINT8,  // Owner ID
@@ -109,6 +109,7 @@ void GridGame::Routine()
 
 void GridGame::PrepareGame()
 {
+	m_NewGame = true;
 	m_GameRunning = true;
 	m_QueueStartTime = 0;
 
@@ -142,8 +143,12 @@ void GridGame::PrepareGame()
 
 void GridGame::GenerateFood()
 {
+	//TODO: tell clients about next food update
+	// corners or edges teleport
+	// only update moves that actually happened
+
 	// Generate food
-	for (int i = 0; i < m_Players.size() * 10; i++)
+	for (int i = 0; i < m_Players.size() * 2; i++)
 	{
 		uint32_t x, y;
 
@@ -179,8 +184,14 @@ bool GridGame::CheckConditions()
 	std::size_t PlayersAlive = m_Players.size();
 	int FoodCount = 0;
 
+	if (m_NewGame)
+	{
+		m_TurnTimeout = Now + 10;
+		m_NewGame = false;
+	}
+
 	// Move time exceeded
-	if (Now - m_TurnStartTime > 180)
+	if (Now >= m_TurnTimeout)
 		StartNewTurn();
 
 	for (uint32_t x = 0; x < m_GridWidth; x++)
@@ -276,7 +287,7 @@ void GridGame::StartNewTurn()
 		PlayerNextIt = m_Players.begin();
 
 	m_TurnPlayer = PlayerNextIt->second;
-	m_TurnStartTime = std::time(nullptr);
+	m_TurnTimeout = std::time(nullptr) + 10;
 
 	for (auto& Player : m_Players)
 	{
@@ -313,22 +324,28 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 
 void GridGame::TransmitGrid(Player Player)
 {
-	Packet Packet(NetDataType::NET_GAME_DATA);
-	Packet.push_back(m_TurnPlayer.m_ID);
-	Packet.push_back(m_TurnStartTime);
-	Packet.push_back(m_GridWidth);
-	Packet.push_back(m_GridHeight);
-	Packet.push_back(m_GridWidth * m_GridHeight);
+	std::vector<PacketStruct> FieldUpdates;
 
 	for (uint32_t x = 0; x < m_GridWidth; x++)
 	{
 		for (uint32_t y = 0; y < m_GridHeight; y++)
 		{
-			Packet.push_back((uint8_t)m_Grid[x][y].m_FieldType);
-			Packet.push_back((uint8_t)m_Grid[x][y].m_OwnerID);
-			Packet.push_back((uint16_t)m_Grid[x][y].m_Power);
+			FieldUpdates.push_back(
+				{
+					(uint8_t)m_Grid[x][y].m_FieldType,
+					(uint8_t)m_Grid[x][y].m_OwnerID,
+					(uint16_t)m_Grid[x][y].m_Power
+				}
+			);
 		}
 	}
+
+	Packet Packet(NetDataType::NET_GAME_DATA);
+	Packet.push_back(m_TurnPlayer.m_ID);
+	Packet.push_back(m_TurnTimeout);
+	Packet.push_back(m_GridWidth);
+	Packet.push_back(m_GridHeight);
+	Packet.push_back(FieldUpdates);
 
 	m_pServer->GetSerializer()->SerializeSend(
 		Packet,
@@ -513,10 +530,7 @@ void GridGame::HandleConnect(Packet PacketIn, Client Client)
 
 	if (IsReconnect)
 	{
-		for (auto& Player : m_Players)
-		{
-			TransmitGrid(Player.second);
-		}
+		TransmitGrid(APlayer);
 	}
 
 	std::cout << Message << std::endl;
@@ -606,10 +620,12 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 			pMover->m_Power = MoverPower - ToPower;
 			pToField->m_Power = ToPower - MoverPower;
 
-			if (pMover->m_Power > pToField->m_Power)
+			if (pMover->m_Power == pToField->m_Power) {
+				*pToField = Field();
+			} else if (pMover->m_Power > pToField->m_Power) {
+				pMover->m_Power += 1;
 				*pToField = *pMover;
-			else
-				*pMover = *pToField;
+			}
 
 			pToField->m_WasMoved = true;
 		}
@@ -650,7 +666,7 @@ PlayerIterator GridGame::GetPlayerFromIP(std::string IP)
 	auto It = std::find_if(
 		m_Players.begin(),
 		m_Players.end(),
-		[IP](auto Player) { return Player.second.m_Client.m_IP == IP; }
+		[IP](auto Player) { return Player.second.m_Client.m_IP == IP && Player.second.m_HasLostConnection == true; }
 	);
 
 	return It;

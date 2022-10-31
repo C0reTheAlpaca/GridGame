@@ -37,6 +37,7 @@ public:
 	Serializer(const std::map<NetDataType, Instruction> * pInstructions);
 	void SerializeSend(Packet Values, SOCKET Socket);
 	State Deserialize(DynamicBuffer* pBuffer, Packet* pPacket);
+	State PushData(InstructionType Type, Packet* pPacket);
 
 	int8_t DeserializeInt8();
 	int16_t DeserializeInt16();

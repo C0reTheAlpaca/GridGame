@@ -25,17 +25,14 @@ enum class InstructionType : int
 class InstructionStructure
 {
 public:
-    InstructionStructure(uint32_t Count, std::initializer_list<InstructionType> Types)
+    InstructionStructure(std::initializer_list<InstructionType> Types)
     {
-        m_Count = Count;
-
         for (InstructionType Type : Types)
         {
             m_Types.push_back(Type);
         }
     }
 
-    uint32_t m_Count;
     std::vector<InstructionType> m_Types;
 };
 
@@ -62,14 +59,11 @@ public:
             case INSTRUCTION_STRUCTURE:
                 InstructionStructure Structure = std::get<InstructionStructure>(Variant);
                 m_Types.push_back(InstructionType::TYPE_UINT32);
-                m_StructSizeLookup[std::distance(m_Types.begin(), m_Types.end())] = Structure.m_Count;
+                m_StructLookup[std::distance(m_Types.begin(), m_Types.end())] = Structure.m_Types;
 
-                for (int i = 0; i < Structure.m_Count; i++)
+                for (InstructionType Type : Structure.m_Types)
                 {
-                    for (InstructionType Type : Structure.m_Types)
-                    {
-                        m_Types.push_back(Type);
-                    }
+                    m_Types.push_back(Type);
                 }
                 break;
             }
@@ -77,5 +71,5 @@ public:
     }
 
     std::vector<InstructionType> m_Types;
-    std::map<int, uint32_t> m_StructSizeLookup;
+    std::map<int, std::vector<InstructionType>> m_StructLookup;
 };

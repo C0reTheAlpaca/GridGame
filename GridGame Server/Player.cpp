@@ -22,10 +22,10 @@ Player::Player(uint32_t ID, Client Client, std::string Name)
 
 bool Player::operator==(const Player& Player) const
 {
-	return m_Client == Player.m_Client;
+	return m_ID == Player.m_ID;
 }
 
 bool Player::operator!=(const Player& Player) const 
 {
-	return m_Client != Player.m_Client;
+	return m_ID != Player.m_ID;
 }
