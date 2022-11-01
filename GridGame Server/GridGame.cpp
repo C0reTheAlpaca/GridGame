@@ -54,8 +54,10 @@ GridGame::GridGame(Server* pServer)
 		InstructionType::TYPE_INT64,  // Time epoch move timeout
 		InstructionType::TYPE_UINT32, // Grid width
 		InstructionType::TYPE_UINT32, // Grid height
-		InstructionStructure {
+		InstructionStructure {        // Updated fields[]
 			{
+				InstructionType::TYPE_UINT8,  // X
+				InstructionType::TYPE_UINT8,  // Y
 				InstructionType::TYPE_UINT8,  // Type ID
 				InstructionType::TYPE_UINT8,  // Owner ID
 				InstructionType::TYPE_INT16   // Power
@@ -145,7 +147,6 @@ void GridGame::GenerateFood()
 {
 	//TODO: tell clients about next food update
 	// corners or edges teleport
-	// only update moves that actually happened
 
 	// Generate food
 	for (int i = 0; i < m_Players.size() * 2; i++)
@@ -291,7 +292,7 @@ void GridGame::StartNewTurn()
 
 	for (auto& Player : m_Players)
 	{
-		TransmitGrid(Player.second);
+		SendClientUpdate(Player.second);
 	}
 }
 
@@ -322,22 +323,21 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 	StartNewTurn();
 }
 
-void GridGame::TransmitGrid(Player Player)
+void GridGame::SendClientUpdate(Player Player)
 {
 	std::vector<PacketStruct> FieldUpdates;
 
-	for (uint32_t x = 0; x < m_GridWidth; x++)
+	for (Move Move : m_Moves)
 	{
-		for (uint32_t y = 0; y < m_GridHeight; y++)
-		{
-			FieldUpdates.push_back(
-				{
-					(uint8_t)m_Grid[x][y].m_FieldType,
-					(uint8_t)m_Grid[x][y].m_OwnerID,
-					(uint16_t)m_Grid[x][y].m_Power
-				}
-			);
-		}
+		FieldUpdates.push_back(
+			{
+				(uint8_t)Move.X,
+				(uint8_t)Move.Y,
+				(uint8_t)Move.Field.m_FieldType,
+				(uint8_t)Move.Field.m_OwnerID,
+				(uint16_t)Move.Field.m_Power
+			}
+		);
 	}
 
 	Packet Packet(NetDataType::NET_GAME_DATA);
@@ -530,7 +530,7 @@ void GridGame::HandleConnect(Packet PacketIn, Client Client)
 
 	if (IsReconnect)
 	{
-		TransmitGrid(APlayer);
+		SendClientUpdate(APlayer);
 	}
 
 	std::cout << Message << std::endl;
@@ -551,83 +551,100 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 	if (!IsValidMove(ShouldSplit, FromX, FromY, ToX, ToY, PlayerIt))
 		return; // todo: notice player, kick, make lose?
 
-	Field* pFromField = &m_Grid[FromX][FromY];
-	Field* pToField = &m_Grid[ToX][ToY];
+	Field* pOriginField = &m_Grid[FromX][FromY];
+	Field* pTargetField = &m_Grid[ToX][ToY];
 
 	std::unique_ptr<Field> pMover = std::make_unique<Field>();
 
 	if (ShouldSplit)
 	{
-		int16_t Power = pFromField->m_Power;
+		int16_t Power = pOriginField->m_Power;
 
-		pFromField->m_Power = (int)std::floor(Power / 2.0);
+		pOriginField->m_Power = (int)std::floor(Power / 2.0);
 
 		pMover->m_FieldType = Field::FieldType::FIELD_WORKER;
-		pMover->m_OwnerID = pFromField->m_OwnerID;
+		pMover->m_OwnerID = pOriginField->m_OwnerID;
 		pMover->m_Power = (int)std::ceil(Power / 2.0);
 		pMover->m_WasMoved = true;
 	}
 	else 
 	{
-		pMover->m_FieldType = pFromField->m_FieldType;
-		pMover->m_OwnerID = pFromField->m_OwnerID;
-		pMover->m_Power = pFromField->m_Power;
+		pMover->m_FieldType = pOriginField->m_FieldType;
+		pMover->m_OwnerID = pOriginField->m_OwnerID;
+		pMover->m_Power = pOriginField->m_Power;
+		pMover->m_WasMoved = true;
 
-		pFromField->Reset();
+		// Reset the field we come from
+		pOriginField->Reset();
+
+		m_Moves.push_back(Move(ToX, ToY, *pOriginField));
 	}
 
-	if (pToField->m_FieldType == Field::FieldType::FIELD_EMPTY)
+	if (pTargetField->m_FieldType == Field::FieldType::FIELD_EMPTY)
 	{
 		// Move
-		*pToField = *pMover;
-		pToField->m_WasMoved = true;
+		*pTargetField = *pMover;
+
+		m_Moves.push_back(Move(ToX, ToY, *pTargetField));
 
 		return;
 	}
 
-	if (pToField->m_FieldType == Field::FieldType::FIELD_FOOD)
+	if (pTargetField->m_FieldType == Field::FieldType::FIELD_FOOD)
 	{
 		// Move & eat food
-		pToField->m_OwnerID = pMover->m_OwnerID;
-		pToField->m_Power = pMover->m_Power + pToField->m_Power;
-		pToField->m_FieldType = Field::FieldType::FIELD_WORKER;
-		pToField->m_WasMoved = true;
+		pTargetField->m_OwnerID = pMover->m_OwnerID;
+		pTargetField->m_Power = pMover->m_Power + pTargetField->m_Power;
+		pTargetField->m_FieldType = Field::FieldType::FIELD_WORKER;
+		pTargetField->m_WasMoved = true;
+
+		m_Moves.push_back(Move(ToX, ToY, *pTargetField));
 
 		return;
 	}
 
-	if (pToField->m_FieldType == Field::FieldType::FIELD_WORKER)
+	if (pTargetField->m_FieldType == Field::FieldType::FIELD_WORKER)
 	{
-		if (pToField->m_OwnerID == pMover->m_OwnerID)
+		if (pTargetField->m_OwnerID == pMover->m_OwnerID)
 		{
 			// Move and merge
-			pMover->m_Power += pToField->m_Power;
-			*pToField = *pMover;
+			pMover->m_Power += pTargetField->m_Power;
+			*pTargetField = *pMover;
+
+			m_Moves.push_back(Move(ToX, ToY, *pTargetField));
+
+			return;
 		}
-		else
+
+		if (pMover->m_Power == pTargetField->m_Power)
 		{
-			if (pMover->m_Power == pToField->m_Power)
-			{
-				pToField->Reset();
+			// Kill eachother
+			pTargetField->Reset();
 
-				return;
-			}
+			m_Moves.push_back(Move(ToX, ToY, *pTargetField));
 
-			// Move and fight
-			int MoverPower = pMover->m_Power;
-			int ToPower = pToField->m_Power;
+			return;
+		}
 
-			pMover->m_Power = MoverPower - ToPower;
-			pToField->m_Power = ToPower - MoverPower;
+		if (pMover->m_Power > pTargetField->m_Power)
+		{
+			// Win fight and "gain" 1 power
+			*pTargetField = *pMover;
+			pTargetField->m_Power = (pMover->m_Power - pTargetField->m_Power) + 1;
 
-			if (pMover->m_Power == pToField->m_Power) {
-				*pToField = Field();
-			} else if (pMover->m_Power > pToField->m_Power) {
-				pMover->m_Power += 1;
-				*pToField = *pMover;
-			}
+			m_Moves.push_back(Move(ToX, ToY, *pTargetField));
 
-			pToField->m_WasMoved = true;
+			return;
+		}
+
+		if (pMover->m_Power < pTargetField->m_Power)
+		{
+			// Lose fight and enemy "gain" 1 power
+			pTargetField->m_Power = (pTargetField->m_Power - pMover->m_Power) + 1;
+
+			m_Moves.push_back(Move(ToX, ToY, *pTargetField));
+
+			return;
 		}
 	}
 }

@@ -8,6 +8,7 @@
 #include <vector>
 #include <queue>
 #include "Packet.h"
+#include "Field.h"
 
 typedef std::map<uint8_t, Player>::iterator PlayerIterator;
 
@@ -26,7 +27,7 @@ public:
 	void Run();
 	void PrepareGame();
 	void GenerateFood();
-	void TransmitGrid(Player Player);
+	void SendClientUpdate(Player Player);
 	void StartNewTurn();
 
 	bool CheckConditions();
@@ -45,6 +46,7 @@ private:
 	std::time_t m_TurnTimeout;
 	std::mutex m_Mutex;
 	std::map<uint8_t, Player> m_Players;
+	std::vector<Move> m_Moves;
 	std::vector<std::vector<Field>> m_Grid;
 };
 
