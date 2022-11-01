@@ -30,37 +30,43 @@ GridGame::GridGame(Server* pServer)
 	}
 
 	Instruction Connect = {
-		InstructionType::TYPE_STRING, // Name
+		InstructionType::TYPE_STRING,         // Name
 	};
 
 	Instruction ConnectAck = {
-		InstructionType::TYPE_UINT8, // Player ID
+		InstructionType::TYPE_UINT8,          // Player ID
 	};
 
 	Instruction Move = {
-		InstructionType::TYPE_BOOL,   // Should split
-		InstructionType::TYPE_UINT32, // From X
-		InstructionType::TYPE_UINT32, // From Y
-		InstructionType::TYPE_UINT32, // To X
-		InstructionType::TYPE_UINT32, // To Y
+		InstructionType::TYPE_BOOL,           // Should split
+		InstructionType::TYPE_UINT32,         // From X
+		InstructionType::TYPE_UINT32,         // From Y
+		InstructionType::TYPE_UINT32,         // To X
+		InstructionType::TYPE_UINT32,         // To Y
 	};
 
 	Instruction Broadcast = {
-		InstructionType::TYPE_STRING, // Message
+		InstructionType::TYPE_STRING,         // Message
 	};
 
 	Instruction GameData = {
-		InstructionType::TYPE_UINT8,  // Turn player ID
-		InstructionType::TYPE_INT64,  // Time epoch move timeout
-		InstructionType::TYPE_UINT32, // Grid width
-		InstructionType::TYPE_UINT32, // Grid height
-		InstructionStructure {        // Updated fields[]
+		InstructionType::TYPE_UINT8,          // Turn player ID
+		InstructionType::TYPE_INT64,          // Time epoch move timeout
+		InstructionType::TYPE_UINT32,         // Grid width
+		InstructionType::TYPE_UINT32,         // Grid height
+		InstructionStructure {                // Updated fields[]
 			{
 				InstructionType::TYPE_UINT8,  // X
 				InstructionType::TYPE_UINT8,  // Y
 				InstructionType::TYPE_UINT8,  // Type ID
 				InstructionType::TYPE_UINT8,  // Owner ID
 				InstructionType::TYPE_INT16   // Power
+			}
+		},
+		InstructionStructure {                // Next turn food spawns
+			{
+				InstructionType::TYPE_UINT8,  // X
+				InstructionType::TYPE_UINT8,  // Y
 			}
 		}
 	};
@@ -160,7 +166,10 @@ void GridGame::GenerateFood()
 
 		} while (m_Grid[x][y].m_FieldType != Field::FieldType::FIELD_EMPTY);
 
-		m_Grid[x][y] = Field(Field::FieldType::FIELD_FOOD, 0, 1);
+		if (m_NewGame)
+			m_Grid[x][y] = Field(Field::FieldType::FIELD_FOOD, 0, 1);
+		else
+			m_FoodUpdates.push_back(FoodUpdate(x, y));
 	}
 }
 
@@ -325,6 +334,7 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 
 void GridGame::SendClientUpdate(Player Player)
 {
+	std::vector<PacketStruct> FoodUpdates;
 	std::vector<PacketStruct> FieldUpdates;
 
 	for (Move Move : m_Moves)
@@ -340,12 +350,23 @@ void GridGame::SendClientUpdate(Player Player)
 		);
 	}
 
+	for (FoodUpdate Food : m_FoodUpdates)
+	{
+		FoodUpdates.push_back(
+			{
+				(uint8_t)Food.X,
+				(uint8_t)Food.Y
+			}
+		);
+	}
+
 	Packet Packet(NetDataType::NET_GAME_DATA);
 	Packet.push_back(m_TurnPlayer.m_ID);
 	Packet.push_back(m_TurnTimeout);
 	Packet.push_back(m_GridWidth);
 	Packet.push_back(m_GridHeight);
 	Packet.push_back(FieldUpdates);
+	Packet.push_back(FoodUpdates);
 
 	m_pServer->GetSerializer()->SerializeSend(
 		Packet,

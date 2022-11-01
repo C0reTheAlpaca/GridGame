@@ -30,3 +30,9 @@ struct Move
 	uint32_t Y;
 	Field Field;
 };
+
+struct FoodUpdate
+{
+	uint32_t X;
+	uint32_t Y;
+};

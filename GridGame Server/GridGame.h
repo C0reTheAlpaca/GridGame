@@ -47,6 +47,7 @@ private:
 	std::mutex m_Mutex;
 	std::map<uint8_t, Player> m_Players;
 	std::vector<Move> m_Moves;
+	std::vector<FoodUpdate> m_FoodUpdates;
 	std::vector<std::vector<Field>> m_Grid;
 };
 
