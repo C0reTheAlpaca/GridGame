@@ -1,9 +1,10 @@
 #include "Player.h"
+#include "Client.h"
 
 Player::Player()
 {
 	m_ID = 0;
-	m_Client = Client(-1, "");
+	m_Client = Client();
 	m_Name = "";
 	m_HasLostGame = false;
 	m_HasLostConnection = false;

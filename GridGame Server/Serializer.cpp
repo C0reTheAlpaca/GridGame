@@ -1,18 +1,26 @@
 #include "Serializer.h"
 #include "DynamicBuffer.h"
 
-Serializer::Serializer(const std::map<NetDataType, Instruction>* pInstructions)
+Serializer::Serializer()
 {
 	m_State = State::STATE_DEFAULT;
 	m_pSerializeData = nullptr;
 	m_pSerializePointer = nullptr;
 	m_pDeserializePointer = nullptr;
 	m_pDeserializeEndPointer = nullptr;
+	m_pInstructions = nullptr;
+}
+
+void Serializer::SetInstructions(const std::map<NetDataType, Instruction>* pInstructions)
+{
 	m_pInstructions = pInstructions;
 }
 
 void Serializer::SerializeSend(Packet Packet, SOCKET Socket)
 {
+	if (!m_pInstructions)
+		return;
+
 	// Get instruction
 	auto InstructionIt = m_pInstructions->find(Packet.m_Magic);
 
@@ -26,7 +34,6 @@ void Serializer::SerializeSend(Packet Packet, SOCKET Socket)
 
 	for (auto It = Packet.m_Data   .begin(); It != Packet.m_Data.end(); It++)
 	{
-		int Index = std::distance(Packet.m_Data.begin(), It);
 		std::size_t VariantIndex = It->index();
 
 		// Add bytes of type
@@ -40,6 +47,10 @@ void Serializer::SerializeSend(Packet Packet, SOCKET Socket)
 	}
 
 	m_pSerializeData = (char*)std::malloc(TotalPacketBytes);
+
+	if (!m_pSerializeData)
+		return;
+
 	m_pSerializePointer = m_pSerializeData;
 
 	// Serialize magic
@@ -67,7 +78,7 @@ void Serializer::SerializeSend(Packet Packet, SOCKET Socket)
 	}
 
 	// Send data
-	send(Socket, m_pSerializeData, TotalPacketBytes, NULL);
+	send(Socket, m_pSerializeData, (int)TotalPacketBytes, NULL);
 
 	// Cleanup
 	free(m_pSerializeData);
@@ -75,11 +86,20 @@ void Serializer::SerializeSend(Packet Packet, SOCKET Socket)
 
 Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacket)
 {
+	if (!m_pInstructions)
+	{
+		m_State = State::STATE_MISSING_INSTRUCTIONS;
+		return m_State;
+	}
+
 	m_State = State::STATE_SUCCESS;
 
 	// Check if buffer contains magic
 	if (pBuffer->GetSize() < sizeof(pPacket->m_Magic))
-		return State::STATE_INCOMPLETE;
+	{
+		m_State = State::STATE_INCOMPLETE;
+		return m_State;
+	}
 
 	m_pDeserializePointer = &pBuffer->m_Data.front();
 	m_pDeserializeEndPointer = m_pDeserializePointer + pBuffer->GetSize();
@@ -92,7 +112,10 @@ Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacke
 	auto InstructionIt = m_pInstructions->find((NetDataType)Magic);
 
 	if (InstructionIt == m_pInstructions->end())
-		return State::STATE_ERROR;
+	{
+		m_State = State::STATE_ERROR;
+		return m_State;
+	}
 
 	Instruction Instruction = InstructionIt->second;
 
@@ -100,7 +123,7 @@ Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacke
 
 	for (auto It = Types.begin(); It != Types.end(); It++)
 	{
-		int Index = std::distance(Types.begin(), It);
+		int Index = (int)std::distance(Types.begin(), It);
 
 		// Check if begin of structure
 		if (*It == InstructionType::TYPE_UINT32 &&
@@ -110,16 +133,26 @@ Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacke
 			uint32_t StructCount = DeserializeUInt32();
 			pPacket->m_Data.push_back(StructCount);
 
-			for (int i = 0; i < StructCount; i++)
+			for (uint32_t i = 0; i < StructCount; i++)
 			{
 				for (InstructionType Type : Instruction.m_StructLookup[Index])
+				{
 					PushData(*It, pPacket);
+
+					/// Check if data is incomplete
+					if (m_State == State::STATE_INCOMPLETE)
+						return m_State;
+				}
 			}
 
 			continue;
 		}
 
 		PushData(*It, pPacket);
+
+		/// Check if data is incomplete
+		if (m_State == State::STATE_INCOMPLETE)
+			return m_State;
 	}
 
 	pBuffer->Pop(m_pDeserializePointer - &pBuffer->m_Data.front());
@@ -127,7 +160,7 @@ Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacke
 	return m_State;
 }
 
-Serializer::State Serializer::PushData(InstructionType Type, Packet* pPacket)
+void Serializer::PushData(InstructionType Type, Packet* pPacket)
 {
 	switch (Type)
 	{
@@ -143,10 +176,6 @@ Serializer::State Serializer::PushData(InstructionType Type, Packet* pPacket)
 	case InstructionType::TYPE_DOUBLE: pPacket->m_Data.push_back(DeserializeDouble()); break;
 	case InstructionType::TYPE_STRING: pPacket->m_Data.push_back(DeserializeString()); break;
 	}
-
-	/// Check if data is incomplete
-	if (m_State == State::STATE_INCOMPLETE)
-		return m_State;
 }
 
 int8_t Serializer::DeserializeInt8()

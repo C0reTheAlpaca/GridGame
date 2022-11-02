@@ -17,6 +17,7 @@ public:
 		STATE_DEFAULT,
 		STATE_SUCCESS,
 		STATE_ERROR,
+		STATE_MISSING_INSTRUCTIONS,
 		STATE_INCOMPLETE
 	};
 
@@ -34,10 +35,11 @@ public:
 		sizeof(uint32_t),
 	};
 
-	Serializer(const std::map<NetDataType, Instruction> * pInstructions);
+	Serializer();
+	void SetInstructions(const std::map<NetDataType, Instruction>* pInstructions);
 	void SerializeSend(Packet Values, SOCKET Socket);
+	void PushData(InstructionType Type, Packet* pPacket);
 	State Deserialize(DynamicBuffer* pBuffer, Packet* pPacket);
-	State PushData(InstructionType Type, Packet* pPacket);
 
 	int8_t DeserializeInt8();
 	int16_t DeserializeInt16();

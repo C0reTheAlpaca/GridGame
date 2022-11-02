@@ -8,8 +8,15 @@
 
 Server::Server()
 {
+    m_Shutdown = false;
     m_Socket = INVALID_SOCKET;
-    m_pSerializer = new Serializer(&m_Instructions);
+    m_pSerializer = new Serializer();
+    m_pSerializer->SetInstructions(&m_Instructions);
+}
+
+Server::~Server()
+{
+    delete m_pSerializer;
 }
 
 void Server::Start()
@@ -55,51 +62,122 @@ void Server::Start()
     if (Result == SOCKET_ERROR)
         return;
 
+    unsigned long Arg = 1;
+    ioctlsocket(m_Socket, FIONBIO, &Arg);
+
     std::cout << "Server started, waiting for connections...\n";
 
     Routine();
-
-    delete m_pSerializer;
 }
 
 void Server::Routine()
 {
-    while (true)
+    while (!m_Shutdown)
     {
-        // Only allow 64 connections
-        while (m_Clients.size() >= 64)
-        {
-            Sleep(10);
-        }
+        Accept();
+        Receive();
+    }
 
-        sockaddr_storage ClientAddress = { 0 };
-        int Length = sizeof(ClientAddress);
+    for (Client Client : m_Clients)
+        ShutdownConnection(Client);
+    
+    WSACleanup();
+}
 
-        SOCKET ClientSocket = accept(m_Socket, (sockaddr*)&ClientAddress, &Length);
+void Server::Accept()
+{
+    // Only allow 64 connections
+    if (m_Clients.size() >= 64)
+        return;
 
-        if (ClientSocket == INVALID_SOCKET)
+    sockaddr_storage ClientAddress = { 0 };
+    int Length = sizeof(ClientAddress);
+
+    SOCKET ClientSocket = accept(m_Socket, (sockaddr*)&ClientAddress, &Length);
+
+    if (ClientSocket == 0 || ClientSocket == SOCKET_ERROR)
+        return;
+
+    Client NewClient(
+        ClientSocket, 
+        GetClientIP(ClientSocket, &ClientAddress), 
+        &m_Instructions
+    );
+
+    // Count concurrent connections of this client
+    int ConnectionCount = 0;
+
+    for (Client Client : m_Clients)
+    {
+        if (Client.m_IP == NewClient.m_IP)
+            ConnectionCount++;
+    }
+
+    // Only allow 4 concurrent connections per client
+    if (ConnectionCount >= 4)
+    {
+        ShutdownConnection(NewClient);
+        return;
+    }
+
+    FD_ZERO(&NewClient.m_Set);
+    FD_SET(ClientSocket, &NewClient.m_Set);
+
+    m_Clients.push_back(NewClient);
+}
+
+void Server::Receive()
+{
+    char TempBuffer[BUFFER_SIZE];
+
+    for (Client Client : m_Clients)
+    {
+        if (!FD_ISSET(Client.m_Socket, &Client.m_Set))
             continue;
 
-        Client NewClient(ClientSocket, GetClientIP(ClientSocket, &ClientAddress));
+        // Receive data from stream
+        int RecvBytes = recv(Client.m_Socket, (char*)&TempBuffer, BUFFER_SIZE, 0);
 
-        // Count concurrent connections of this client
-        int ConnectionCount = 0;
+        // No data received
+        if (RecvBytes < 0)
+            continue;
 
-        for (Client Client : m_Clients)
+        // Disconnect due to error
+        if (RecvBytes == 0)
         {
-            if (Client.m_IP == NewClient.m_IP)
-                ConnectionCount++;
+            g_pGridGame->Disconnect(Client);
+            ShutdownConnection(Client);
+
+            return;
         }
 
-        // Only allow 4 concurrent connections per client
-        if (ConnectionCount >= 4)
-            ShutdownConnection(NewClient);
+        Serializer::State State = Serializer::State::STATE_DEFAULT;
 
-        std::lock_guard LockGuard(m_Mutex);
-        std::thread NewThread = std::thread(&Server::HandleReceive, this, NewClient);
-        NewThread.detach();
+        // Write to buffer
+        Client.m_ReceiveBuffer.Append(TempBuffer, RecvBytes);
 
-        m_Clients.push_back(NewClient);
+        // Deserialize
+        while (Client.m_ReceiveBuffer.GetSize() > 0 && State != Serializer::State::STATE_INCOMPLETE)
+        {
+            Packet Packet;
+            State = Client.m_Serializer.Deserialize(&Client.m_ReceiveBuffer, &Packet);
+
+            // Handle data
+            switch (State)
+            {
+            case Serializer::State::STATE_ERROR:
+                g_pGridGame->Kick(Client);
+                ShutdownConnection(Client);
+                return;
+            case Serializer::State::STATE_SUCCESS:
+                g_pGridGame->Receive(Packet, Client); // todo: add callbacks
+                break;
+            case Serializer::State::STATE_MISSING_INSTRUCTIONS:
+                m_Shutdown = true;
+                ShutdownConnection(Client);
+                break;
+            }
+        }
     }
 }
 
@@ -132,8 +210,6 @@ std::string Server::GetClientIP(SOCKET ClientSocket, sockaddr_storage* pClientAd
 
 void Server::ShutdownConnection(Client Client)
 {
-    std::lock_guard LockGuard(m_Mutex);
-
     for (auto It = m_Clients.begin(); It != m_Clients.end(); It++)
     {
         if (*It == Client)
@@ -154,52 +230,4 @@ void Server::RegisterInstruction(NetDataType ID, Instruction Instruction)
 Serializer* Server::GetSerializer()
 {
     return m_pSerializer;
-}
-
-void Server::HandleReceive(Client Client)
-{
-    int RecvBytes = 0;
-    char TempBuffer[BUFFER_SIZE];
-    Serializer Parser(&m_Instructions);
-    DynamicBuffer Buffer(BUFFER_SIZE);
-
-    do 
-    {
-        Serializer::State State = Serializer::State::STATE_DEFAULT;
-
-        // Receive data from stream
-        RecvBytes = recv(Client.m_Socket, (char*)&TempBuffer, BUFFER_SIZE, 0);
-
-        // Disconnect
-        if (RecvBytes == 0 || RecvBytes < 0)
-        {
-            g_pGridGame->Disconnect(Client);
-            ShutdownConnection(Client);
-
-            return;
-        }
-
-        // Write to buffer
-        Buffer.Append(TempBuffer, RecvBytes);
-
-        // Deserialize
-        while (Buffer.GetSize() > 0 && State != Serializer::State::STATE_INCOMPLETE)
-        {
-            Packet Packet;
-            State = Parser.Deserialize(&Buffer, &Packet);
-
-            // Handle data
-            switch (State)
-            {
-            case Serializer::State::STATE_ERROR:
-                g_pGridGame->Kick(Client);
-                ShutdownConnection(Client);
-                return;
-            case Serializer::State::STATE_SUCCESS:
-                g_pGridGame->Receive(Packet, Client); // todo: add callbacks
-                break;
-            }
-        }
-
-    } while (RecvBytes > 0);
 }

@@ -59,7 +59,7 @@ public:
             case INSTRUCTION_STRUCTURE:
                 InstructionStructure Structure = std::get<InstructionStructure>(Variant);
                 m_Types.push_back(InstructionType::TYPE_UINT32);
-                m_StructLookup[std::distance(m_Types.begin(), m_Types.end())] = Structure.m_Types;
+                m_StructLookup[(int)std::distance(m_Types.begin(), m_Types.end())] = Structure.m_Types;
 
                 for (InstructionType Type : Structure.m_Types)
                 {

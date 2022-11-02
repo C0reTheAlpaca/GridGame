@@ -1,7 +1,6 @@
 #pragma once
 
 #define WIN32_LEAN_AND_MEAN
-#define BUFFER_SIZE 512
 
 #include <winsock2.h>
 #include <Ws2tcpip.h>
@@ -9,8 +8,8 @@
 #include <map>
 #include <mutex>
 #include "Client.h"
-#include "Instruction.h"
 #include "Packet.h"
+#include "Instruction.h"
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -20,9 +19,11 @@ class Server
 {
 public:
     Server();
+    ~Server();
     void Start();
-    void HandleReceive(Client Client);
     void Routine();
+    void Accept();
+    void Receive();
     void ShutdownConnection(Client Client);
     void RegisterInstruction(NetDataType ID, Instruction Instruction);
 
@@ -30,6 +31,7 @@ public:
     std::string GetClientIP(SOCKET ClientSocket, sockaddr_storage* pClientAddress);
 
 private:
+    bool m_Shutdown;
     SOCKET m_Socket;
     Serializer* m_pSerializer;
     std::mutex m_Mutex;

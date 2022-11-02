@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <map>
 
 typedef std::variant<int8_t, int16_t, int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t, bool, double, std::string> PacketData;
 typedef std::vector<PacketData> PacketStruct;
@@ -41,8 +42,8 @@ public:
 		uint32_t Size = (uint32_t)Structs.size();
 		m_Data.push_back(Size);
 
-		m_StructCountLookup[std::distance(m_Data.begin(), m_Data.end())] = Size;
-		m_StructSizeLookup[std::distance(m_Data.begin(), m_Data.end())] = Size * sizeof(Structs[0]);
+		m_StructCountLookup[(int)std::distance(m_Data.begin(), m_Data.end())] = Size;
+		m_StructSizeLookup[(int)std::distance(m_Data.begin(), m_Data.end())] = Size * sizeof(Structs[0]);
 
 		for (PacketStruct Struct : Structs)
 			for (PacketData Data : Struct)

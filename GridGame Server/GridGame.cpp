@@ -6,6 +6,7 @@
 #include <format>
 #include <chrono>
 #include <thread>
+#include <numeric>
 
 #undef max
 #undef min
@@ -15,6 +16,7 @@ GridGame* g_pGridGame = nullptr;
 GridGame::GridGame(Server* pServer)
 {
 	m_NewGame = true;
+	m_TurnEnded = false;
 	m_GameRunning = false;
 	m_QueueStartTime = 0;
 	m_pServer = pServer;
@@ -63,7 +65,7 @@ GridGame::GridGame(Server* pServer)
 				InstructionType::TYPE_INT16   // Power
 			}
 		},
-		InstructionStructure {                // Next turn food spawns
+		InstructionStructure {                // Next food spawns[]
 			{
 				InstructionType::TYPE_UINT8,  // X
 				InstructionType::TYPE_UINT8,  // Y
@@ -106,10 +108,7 @@ void GridGame::Routine()
 		if (Now - m_QueueStartTime > 5)
 		{
 			PrepareGame();
-			{
-				std::lock_guard LockGuard(m_Mutex);
-				StartNewTurn();
-			}
+			StartNewTurn();
 			Run();
 		}
 	}
@@ -151,7 +150,21 @@ void GridGame::PrepareGame()
 
 void GridGame::GenerateFood()
 {
-	//TODO: tell clients about next food update
+	int FoodCount = 0;
+
+	for (uint32_t x = 0; x < m_GridWidth; x++)
+	{
+		for (uint32_t y = 0; y < m_GridHeight; y++)
+		{
+			if (m_Grid[x][y].m_FieldType == Field::FieldType::FIELD_FOOD)
+				FoodCount++;
+		}
+	}
+
+	if (FoodCount > 0)
+		return;
+
+	//TODO:
 	// corners or edges teleport
 
 	// Generate food
@@ -177,44 +190,32 @@ void GridGame::Run()
 {
 	bool GameRunning = true;
 
-	do
+	while (GameRunning)
 	{
-		GameRunning = CheckConditions();
-		std::this_thread::sleep_for(std::chrono::milliseconds(25));
-	} while (GameRunning);
+		// todo: receive client data in 1 thread 
+		std::time_t Now = std::time(nullptr);
 
-	std::lock_guard LockGuard(m_Mutex);
-	m_GameRunning = false;
+		if (m_NewGame)
+		{
+			m_TurnTimeout = Now + 10;
+			m_NewGame = false;
+		}
+
+		GenerateFood();
+
+		// Move time exceeded
+		if (m_TurnEnded || Now >= m_TurnTimeout)
+			StartNewTurn();
+
+		GameRunning = !CheckWinConditions();
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(25));
+	}
 }
 
-bool GridGame::CheckConditions()
+bool GridGame::CheckWinConditions()
 {
-	std::lock_guard LockGuard(m_Mutex);
-	std::time_t Now = std::time(nullptr);
 	std::size_t PlayersAlive = m_Players.size();
-	int FoodCount = 0;
-
-	if (m_NewGame)
-	{
-		m_TurnTimeout = Now + 10;
-		m_NewGame = false;
-	}
-
-	// Move time exceeded
-	if (Now >= m_TurnTimeout)
-		StartNewTurn();
-
-	for (uint32_t x = 0; x < m_GridWidth; x++)
-	{
-		for (uint32_t y = 0; y < m_GridHeight; y++)
-		{
-			if (m_Grid[x][y].m_FieldType == Field::FieldType::FIELD_FOOD)
-				FoodCount++;
-		}
-	}
-
-	if (FoodCount <= 0)
-		GenerateFood();
 
 	for (auto& Player : m_Players)
 	{
@@ -232,11 +233,14 @@ bool GridGame::CheckConditions()
 			);
 
 			std::cout << Message << std::endl;
-		}		
-		
+		}
+
 		if (Player.second.m_HasLostGame)
 			PlayersAlive--;
 	}
+
+	if (PlayersAlive >= 2)
+		return false;
 
 	if (PlayersAlive == 0)
 	{
@@ -255,9 +259,10 @@ bool GridGame::CheckConditions()
 
 		std::cout << Message << std::endl;
 
-		return false;
+		return true;
 	}
-	else if (PlayersAlive == 1)
+
+	if (PlayersAlive == 1)
 	{
 		for (auto& Player : m_Players)
 		{
@@ -277,10 +282,10 @@ bool GridGame::CheckConditions()
 			}
 		}
 
-		return false;
+		return true;
 	}
 
-	return true;
+	return false;
 }
 
 void GridGame::StartNewTurn()
@@ -303,6 +308,8 @@ void GridGame::StartNewTurn()
 	{
 		SendClientUpdate(Player.second);
 	}
+
+	m_TurnEnded = false;
 }
 
 void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
@@ -329,7 +336,7 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 		}
 	}
 
-	StartNewTurn();
+	m_TurnEnded = true;
 }
 
 void GridGame::SendClientUpdate(Player Player)
@@ -337,7 +344,7 @@ void GridGame::SendClientUpdate(Player Player)
 	std::vector<PacketStruct> FoodUpdates;
 	std::vector<PacketStruct> FieldUpdates;
 
-	for (Move Move : m_Moves)
+	for (const Move& Move : m_Moves)
 	{
 		FieldUpdates.push_back(
 			{
@@ -350,7 +357,7 @@ void GridGame::SendClientUpdate(Player Player)
 		);
 	}
 
-	for (FoodUpdate Food : m_FoodUpdates)
+	for (const FoodUpdate& Food : m_FoodUpdates)
 	{
 		FoodUpdates.push_back(
 			{
@@ -403,8 +410,6 @@ void GridGame::Kick(Client Client)
 
 void GridGame::Receive(Packet Data, Client Client)
 {
-	std::lock_guard LockGuard(m_Mutex);
-
 	if (Data.m_Magic == NetDataType::NET_CONNECT)
 	{
 		HandleConnect(Data, Client);
@@ -432,8 +437,6 @@ void GridGame::Receive(Packet Data, Client Client)
 
 void GridGame::Disconnect(Client Client)
 {
-	std::lock_guard LockGuard(m_Mutex);
-
 	// Check if this client is actually a player
 	auto PlayerIt = GetPlayerFromClient(Client);
 	if (PlayerIt == m_Players.end())
@@ -514,9 +517,9 @@ void GridGame::HandleConnect(Packet PacketIn, Client Client)
 	}
 	else
 	{
-		int Index = std::distance(m_Players.begin(), m_Players.end());
-
 		uint8_t LowestID = 0;
+		uint8_t Index = (uint8_t)std::distance(m_Players.begin(), m_Players.end());
+
 		for (uint8_t i = 0; i < Index + 1; i++)
 			if (m_Players.count(i) == 0)
 				LowestID = i;
