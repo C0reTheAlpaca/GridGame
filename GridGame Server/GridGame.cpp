@@ -107,9 +107,18 @@ void GridGame::Routine()
 		// Start game if enough players & queue timer elapsed
 		if (Now - m_QueueStartTime > 5)
 		{
+			std::lock_guard LockGuard(m_Mutex);
 			PrepareGame();
 			StartNewTurn();
-			Run();
+			Tick();
+		}
+
+		// Move time exceeded
+		if (m_TurnEnded || Now >= m_TurnTimeout)
+		{
+			std::lock_guard LockGuard(m_Mutex);
+			StartNewTurn();
+			Tick();
 		}
 	}
 }
@@ -186,31 +195,22 @@ void GridGame::GenerateFood()
 	}
 }
 
-void GridGame::Run()
+void GridGame::Tick()
 {
-	bool GameRunning = true;
+	// todo: receive client data in 1 thread 
+	std::time_t Now = std::time(nullptr);
 
-	while (GameRunning)
+	if (m_NewGame)
 	{
-		// todo: receive client data in 1 thread 
-		std::time_t Now = std::time(nullptr);
-
-		if (m_NewGame)
-		{
-			m_TurnTimeout = Now + 10;
-			m_NewGame = false;
-		}
-
-		GenerateFood();
-
-		// Move time exceeded
-		if (m_TurnEnded || Now >= m_TurnTimeout)
-			StartNewTurn();
-
-		GameRunning = !CheckWinConditions();
-
-		std::this_thread::sleep_for(std::chrono::milliseconds(25));
+		m_TurnTimeout = Now + 10;
+		m_NewGame = false;
 	}
+
+	GenerateFood();
+
+	m_GameRunning = !CheckWinConditions();
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(25));
 }
 
 bool GridGame::CheckWinConditions()

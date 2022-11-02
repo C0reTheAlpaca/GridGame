@@ -76,6 +76,8 @@ void Server::Routine()
     {
         Accept();
         Receive();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
     for (Client Client : m_Clients)

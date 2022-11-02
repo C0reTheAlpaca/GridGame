@@ -24,7 +24,7 @@ public:
 	void HandleLeave(PlayerIterator PlayerIt);
 	void HandleMove(Packet Data, PlayerIterator PlayerIt);
 	void HandleEndTurn(PlayerIterator PlayerIt);
-	void Run();
+	void Tick();
 	bool CheckWinConditions();
 	void PrepareGame();
 	void GenerateFood();
@@ -46,6 +46,7 @@ private:
 	Player m_TurnPlayer;
 	std::time_t m_QueueStartTime;
 	std::time_t m_TurnTimeout;
+	std::mutex m_Mutex;
 	std::map<uint8_t, Player> m_Players;
 	std::vector<Move> m_Moves;
 	std::vector<FoodUpdate> m_FoodUpdates;
