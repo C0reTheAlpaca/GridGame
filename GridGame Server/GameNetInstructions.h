@@ -22,10 +22,10 @@ Instruction GameStart = {
 
 Instruction Move = {
 	InstructionType::TYPE_BOOL,           // Should split
-	InstructionType::TYPE_UINT32,         // From X
-	InstructionType::TYPE_UINT32,         // From Y
-	InstructionType::TYPE_UINT32,         // To X
-	InstructionType::TYPE_UINT32,         // To Y
+	InstructionType::TYPE_UINT16,         // From X
+	InstructionType::TYPE_UINT16,         // From Y
+	InstructionType::TYPE_UINT16,         // To X
+	InstructionType::TYPE_UINT16,         // To Y
 };
 
 Instruction Broadcast = {
@@ -37,8 +37,8 @@ Instruction GameData = {
 	InstructionType::TYPE_INT64,          // Time epoch move timeout
 	InstructionStructure {                // Updated fields[]
 		{
-			InstructionType::TYPE_UINT8,  // X
-			InstructionType::TYPE_UINT8,  // Y
+			InstructionType::TYPE_UINT16,  // X
+			InstructionType::TYPE_UINT16,  // Y
 			InstructionType::TYPE_UINT8,  // Type ID
 			InstructionType::TYPE_UINT8,  // Owner ID
 			InstructionType::TYPE_INT16   // Power
@@ -46,8 +46,8 @@ Instruction GameData = {
 	},
 	InstructionStructure {                // Next food spawns[]
 		{
-			InstructionType::TYPE_UINT8,  // X
-			InstructionType::TYPE_UINT8,  // Y
+			InstructionType::TYPE_UINT16,  // X
+			InstructionType::TYPE_UINT16,  // Y
 		}
 	}
 };
