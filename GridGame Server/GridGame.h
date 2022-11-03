@@ -39,8 +39,8 @@ private:
 	bool m_NewGame;
 	bool m_TurnEnded;
 	bool m_GameRunning;
-	uint32_t m_GridWidth;
-	uint32_t m_GridHeight;
+	uint16_t m_GridWidth;
+	uint16_t m_GridHeight;
 	Server* m_pServer;
 	Player m_TurnPlayer;
 	std::time_t m_QueueStartTime;

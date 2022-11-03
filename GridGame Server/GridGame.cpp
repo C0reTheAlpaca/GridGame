@@ -81,7 +81,7 @@ void GridGame::Routine()
 			Tick();
 		}
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(25));
+		//std::this_thread::sleep_for(std::chrono::milliseconds(25));
 	}
 }
 void GridGame::StartGame()
@@ -129,9 +129,9 @@ void GridGame::PregenerateFood()
 	// Count amount of food on the field
 	int FoodCount = 0;
 
-	for (uint32_t x = 0; x < m_GridWidth; x++)
+	for (uint16_t x = 0; x < m_GridWidth; x++)
 	{
-		for (uint32_t y = 0; y < m_GridHeight; y++)
+		for (uint16_t y = 0; y < m_GridHeight; y++)
 		{
 			if (m_Grid[x][y].m_FieldType == Field::FieldType::FIELD_FOOD)
 				FoodCount++;
@@ -381,8 +381,8 @@ void GridGame::SendClientUpdate(Player APlayer)
 
 		FoodUpdates.push_back(
 			{
-				(uint8_t)Update.x,
-				(uint8_t)Update.y,
+				(uint16_t)Update.x,
+				(uint16_t)Update.y,
 			}
 		);
 	}
@@ -391,8 +391,8 @@ void GridGame::SendClientUpdate(Player APlayer)
 	{
 		FieldUpdates.push_back(
 			{
-				(uint8_t)Update.x,
-				(uint8_t)Update.y,
+				(uint16_t)Update.x,
+				(uint16_t)Update.y,
 				(uint8_t)Update.Field.m_FieldType,
 				(uint8_t)Update.Field.m_OwnerID,
 				(uint16_t)Update.Field.m_Power
@@ -414,6 +414,8 @@ void GridGame::SendClientUpdate(Player APlayer)
 
 void GridGame::Kick(Client Client)
 {
+	std::lock_guard LockGuard(m_Mutex);
+
 	// Check if this client is actually a player
 	PlayerIterator PlayerIt = GetPlayerByClient(Client);
 	if (PlayerIt == m_Players.end())
@@ -441,6 +443,8 @@ void GridGame::Kick(Client Client)
 
 void GridGame::Receive(Packet Data, Client Client)
 {
+	std::lock_guard LockGuard(m_Mutex);
+
 	if (Data.m_Magic == NetDataType::NET_CONNECT)
 	{
 		HandleConnect(Data, Client);
@@ -468,6 +472,8 @@ void GridGame::Receive(Packet Data, Client Client)
 
 void GridGame::Disconnect(Client Client)
 {
+	std::lock_guard LockGuard(m_Mutex);
+
 	// Check if this client is actually a player
 	auto PlayerIt = GetPlayerByClient(Client);
 	if (PlayerIt == m_Players.end())
@@ -602,10 +608,10 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 		return;
 
 	bool ShouldSplit = std::get<bool>(Packet.m_Data[0]);
-	uint32_t FromX = std::get<uint32_t>(Packet.m_Data[1]);
-	uint32_t FromY = std::get<uint32_t>(Packet.m_Data[2]);
-	uint32_t ToX = std::get<uint32_t>(Packet.m_Data[3]);
-	uint32_t ToY = std::get<uint32_t>(Packet.m_Data[4]);
+	uint16_t FromX = std::get<uint16_t>(Packet.m_Data[1]);
+	uint16_t FromY = std::get<uint16_t>(Packet.m_Data[2]);
+	uint16_t ToX = std::get<uint16_t>(Packet.m_Data[3]);
+	uint16_t ToY = std::get<uint16_t>(Packet.m_Data[4]);
 
 	if (!IsValidMove(ShouldSplit, FromX, FromY, ToX, ToY, PlayerIt))
 		return; // todo: notice player, kick, make lose?

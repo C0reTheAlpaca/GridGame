@@ -10,8 +10,8 @@ Instruction ConnectAck = {
 };
 
 Instruction GameStart = {
-	InstructionType::TYPE_UINT32,         // Grid width
-	InstructionType::TYPE_UINT32,         // Grid height
+	InstructionType::TYPE_UINT16,         // Grid width
+	InstructionType::TYPE_UINT16,         // Grid height
 	InstructionStructure {                // Players[]
 		{
 			InstructionType::TYPE_UINT8,  // PlayerID
