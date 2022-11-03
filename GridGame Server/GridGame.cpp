@@ -27,7 +27,7 @@ GridGame::GridGame(Server* pServer)
 
 	m_Grid.resize(m_GridWidth);
 
-	for (uint32_t x = 0; x < m_GridWidth; x++)
+	for (uint16_t x = 0; x < m_GridWidth; x++)
 	{
 		m_Grid[x].resize(m_GridHeight);
 	}
@@ -91,9 +91,9 @@ void GridGame::StartGame()
 	m_QueueStartTime = 0;
 
 	// Init grid
-	for (uint32_t x = 0; x < m_GridWidth; x++)
+	for (uint16_t x = 0; x < m_GridWidth; x++)
 	{
-		for (uint32_t y = 0; y < m_GridHeight; y++)
+		for (uint16_t y = 0; y < m_GridHeight; y++)
 		{
 			m_Grid[x][y] = Field();
 		}
@@ -102,12 +102,12 @@ void GridGame::StartGame()
 	for (auto& Player : m_Players)
 	{
 		// Generate workers
-		uint32_t x, y;
+		uint16_t x, y;
 
 		do
 		{
-			x = Utility::GetRandomInteger<uint32_t>(0, m_GridWidth - 1);
-			y = Utility::GetRandomInteger<uint32_t>(0, m_GridHeight - 1);
+			x = Utility::GetRandomInteger<uint16_t>(0, m_GridWidth - 1);
+			y = Utility::GetRandomInteger<uint16_t>(0, m_GridHeight - 1);
 
 		} while (m_Grid[x][y].m_FieldType != Field::FieldType::FIELD_EMPTY);
 
@@ -167,15 +167,15 @@ void GridGame::PregenerateFood()
 	// Pregenerate food for next update unless first turn
 	for (int i = 0; i < m_Players.size() * 2; i++)
 	{
-		uint32_t x, y;
+		uint16_t x, y;
 		Field* pField = nullptr;
 
 		// If new game repeat until food doesn't spawn on worker
 		// TODO: Randomize only with empty fields
 		do
 		{
-			x = Utility::GetRandomInteger<uint32_t>(0, m_GridWidth - 1);
-			y = Utility::GetRandomInteger<uint32_t>(0, m_GridHeight - 1);
+			x = Utility::GetRandomInteger<uint16_t>(0, m_GridWidth - 1);
+			y = Utility::GetRandomInteger<uint16_t>(0, m_GridHeight - 1);
 			pField = &m_Grid[x][y];
 		}
 		while (pField->m_FieldType != Field::FieldType::FIELD_EMPTY);
@@ -326,9 +326,9 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 		Player.second.m_WorkersAlive = 0;
 	}
 
-	for (uint32_t x = 0; x < m_GridWidth; x++)
+	for (uint16_t x = 0; x < m_GridWidth; x++)
 	{
-		for (uint32_t y = 0; y < m_GridHeight; y++)
+		for (uint16_t y = 0; y < m_GridHeight; y++)
 		{
 			Field* pField = &m_Grid[x][y];
 
