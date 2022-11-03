@@ -1,12 +1,13 @@
-#include "GridGame.h"
-#include "Server.h"
-#include "Utility.h"
-#include <iostream>
-#include <algorithm>
 #include <format>
 #include <chrono>
 #include <thread>
 #include <numeric>
+#include <iostream>
+#include <algorithm>
+#include "Server.h"
+#include "Utility.h"
+#include "GridGame.h"
+#include "GameNetInstructions.h"
 
 #undef max
 #undef min
@@ -19,10 +20,10 @@ GridGame::GridGame(Server* pServer)
 	m_TurnEnded = false;
 	m_GameRunning = false;
 	m_QueueStartTime = 0;
-	m_pServer = pServer;
 	m_TurnTimeout = 0;
 	m_GridWidth = 25;
 	m_GridHeight = 25;
+	m_pServer = pServer;
 
 	m_Grid.resize(m_GridWidth);
 
@@ -31,67 +32,24 @@ GridGame::GridGame(Server* pServer)
 		m_Grid[x].resize(m_GridHeight);
 	}
 
-	Instruction Connect = {
-		InstructionType::TYPE_STRING,         // Name
-	};
-
-	Instruction ConnectAck = {
-		InstructionType::TYPE_UINT8,          // Player ID
-	};
-
-	Instruction Move = {
-		InstructionType::TYPE_BOOL,           // Should split
-		InstructionType::TYPE_UINT32,         // From X
-		InstructionType::TYPE_UINT32,         // From Y
-		InstructionType::TYPE_UINT32,         // To X
-		InstructionType::TYPE_UINT32,         // To Y
-	};
-
-	Instruction Broadcast = {
-		InstructionType::TYPE_STRING,         // Message
-	};
-
-	Instruction GameData = {
-		InstructionType::TYPE_UINT8,          // Turn player ID
-		InstructionType::TYPE_INT64,          // Time epoch move timeout
-		InstructionType::TYPE_UINT32,         // Grid width
-		InstructionType::TYPE_UINT32,         // Grid height
-		InstructionStructure {                // Updated fields[]
-			{
-				InstructionType::TYPE_UINT8,  // X
-				InstructionType::TYPE_UINT8,  // Y
-				InstructionType::TYPE_UINT8,  // Type ID
-				InstructionType::TYPE_UINT8,  // Owner ID
-				InstructionType::TYPE_INT16   // Power
-			}
-		},
-		InstructionStructure {                // Next food spawns[]
-			{
-				InstructionType::TYPE_UINT8,  // X
-				InstructionType::TYPE_UINT8,  // Y
-			}
-		}
-	};
-
-	pServer->RegisterInstruction(NetDataType::NET_CONNECT, Connect);
-	pServer->RegisterInstruction(NetDataType::NET_CONNECT_ACK, ConnectAck);
-	pServer->RegisterInstruction(NetDataType::NET_LEAVE, Instruction());
-	pServer->RegisterInstruction(NetDataType::NET_MOVE, Move);
-	pServer->RegisterInstruction(NetDataType::NET_END_TURN, Instruction());
-	pServer->RegisterInstruction(NetDataType::NET_BROADCAST, Broadcast);
-	pServer->RegisterInstruction(NetDataType::NET_GAME_DATA, GameData);
+	m_pServer->RegisterInstruction(NetDataType::NET_CONNECT, Connect);
+	m_pServer->RegisterInstruction(NetDataType::NET_CONNECT_ACK, ConnectAck);
+	m_pServer->RegisterInstruction(NetDataType::NET_LEAVE, Instruction());
+	m_pServer->RegisterInstruction(NetDataType::NET_MOVE, Move);
+	m_pServer->RegisterInstruction(NetDataType::NET_END_TURN, Instruction());
+	m_pServer->RegisterInstruction(NetDataType::NET_BROADCAST, Broadcast);
+	m_pServer->RegisterInstruction(NetDataType::NET_GAME_START, GameStart);
+	m_pServer->RegisterInstruction(NetDataType::NET_GAME_DATA, GameData);
 }
 
 void GridGame::Routine()
 {
-	while (true)
+	while (true) // todo
 	{
-		std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
 		std::time_t Now = std::time(nullptr);
 
 		// Reset queue if insufficient players
-		if (m_Players.size() < 2)
+		if (!m_GameRunning && m_Players.size() < 2)
 		{
 			m_QueueStartTime = 0;
 			continue;
@@ -105,30 +63,34 @@ void GridGame::Routine()
 		}
 
 		// Start game if enough players & queue timer elapsed
-		if (Now - m_QueueStartTime > 5)
+		if (!m_GameRunning && Now - m_QueueStartTime > 5) // todo: add proper lobbies?
 		{
 			std::lock_guard LockGuard(m_Mutex);
-			PrepareGame();
+			StartGame();
+			PregenerateFood();
 			StartNewTurn();
 			Tick();
 		}
 
-		// Move time exceeded
-		if (m_TurnEnded || Now >= m_TurnTimeout)
+		// Move time exceeded or new turn
+		if (m_GameRunning && (m_TurnEnded || Now >= m_TurnTimeout))
 		{
 			std::lock_guard LockGuard(m_Mutex);
+			PregenerateFood();
 			StartNewTurn();
 			Tick();
 		}
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(25));
 	}
 }
-
-void GridGame::PrepareGame()
+void GridGame::StartGame()
 {
 	m_NewGame = true;
 	m_GameRunning = true;
 	m_QueueStartTime = 0;
 
+	// Init grid
 	for (uint32_t x = 0; x < m_GridWidth; x++)
 	{
 		for (uint32_t y = 0; y < m_GridHeight; y++)
@@ -137,9 +99,9 @@ void GridGame::PrepareGame()
 		}
 	}
 
-	// Generate workers
 	for (auto& Player : m_Players)
 	{
+		// Generate workers
 		uint32_t x, y;
 
 		do
@@ -147,18 +109,24 @@ void GridGame::PrepareGame()
 			x = Utility::GetRandomInteger<uint32_t>(0, m_GridWidth - 1);
 			y = Utility::GetRandomInteger<uint32_t>(0, m_GridHeight - 1);
 
-		} while (m_Grid[x][y].m_FieldType == Field::FieldType::FIELD_WORKER);
+		} while (m_Grid[x][y].m_FieldType != Field::FieldType::FIELD_EMPTY);
 
+		// Add worker & prepare for submit to players
 		m_Grid[x][y] = Field(Field::FieldType::FIELD_WORKER, Player.second.m_ID, 5);
+		m_FieldUpdates.push_back(FieldUpdate(x, y, m_Grid[x][y]));
+
+		// Init Player
 		Player.second.m_WorkersAlive = 1;
 		Player.second.m_HasLostGame = false;
-	}
 
-	GenerateFood();
+		// Update player data
+		SendPlayerData(Player.second);
+	}
 }
 
-void GridGame::GenerateFood()
+void GridGame::PregenerateFood()
 {
+	// Count amount of food on the field
 	int FoodCount = 0;
 
 	for (uint32_t x = 0; x < m_GridWidth; x++)
@@ -170,28 +138,56 @@ void GridGame::GenerateFood()
 		}
 	}
 
+	// Only respawn food if none left
 	if (FoodCount > 0)
 		return;
+	
+	// Integrate Pregenerate food of last update
+	for (FieldUpdate& FieldUpdate : m_FutureFieldUpdates)
+	{
+		if (FieldUpdate.Field.m_FieldType != Field::FieldType::FIELD_FOOD)
+			continue;
 
-	//TODO:
-	// corners or edges teleport
+		Field* pField = &m_Grid[FieldUpdate.X][FieldUpdate.Y];
 
-	// Generate food
+		if (pField->m_FieldType == Field::FieldType::FIELD_WORKER)
+		{
+			pField->m_Power += FieldUpdate.Field.m_Power;
+			FieldUpdate.Field = *pField;
+		}
+		else
+		{
+			*pField = Field(Field::FieldType::FIELD_FOOD, FIELD_NO_OWNER, 1);
+		}
+	}
+
+	// Pregenerate food for next update unless first turn
 	for (int i = 0; i < m_Players.size() * 2; i++)
 	{
 		uint32_t x, y;
+		Field* pField = nullptr;
 
+		// If new game repeat until food doesn't spawn on worker
+		// TODO: Randomize only with empty fields
 		do
 		{
 			x = Utility::GetRandomInteger<uint32_t>(0, m_GridWidth - 1);
 			y = Utility::GetRandomInteger<uint32_t>(0, m_GridHeight - 1);
-
-		} while (m_Grid[x][y].m_FieldType != Field::FieldType::FIELD_EMPTY);
+			pField = &m_Grid[x][y];
+		}
+		while (pField->m_FieldType != Field::FieldType::FIELD_EMPTY);
 
 		if (m_NewGame)
-			m_Grid[x][y] = Field(Field::FieldType::FIELD_FOOD, 0, 1);
-		else
-			m_FoodUpdates.push_back(FoodUpdate(x, y));
+		{
+			// Integrate to field directly
+			*pField = Field(Field::FieldType::FIELD_FOOD, 0, 1);
+			m_FieldUpdates.push_back(FieldUpdate(x, y, *pField));
+		}
+		else 
+		{
+			// Save for later integration
+			m_FutureFieldUpdates.push_back(FieldUpdate(x, y, *pField));
+		}
 	}
 }
 
@@ -206,17 +202,14 @@ void GridGame::Tick()
 		m_NewGame = false;
 	}
 
-	GenerateFood();
-
-	m_GameRunning = !CheckWinConditions();
-
-	std::this_thread::sleep_for(std::chrono::milliseconds(25));
+	m_GameRunning = CheckWinConditions();
 }
 
 bool GridGame::CheckWinConditions()
 {
 	std::size_t PlayersAlive = m_Players.size();
 
+	// Check lost
 	for (auto& Player : m_Players)
 	{
 		if (!Player.second.m_HasLostGame && Player.second.m_WorkersAlive <= 0)
@@ -239,9 +232,11 @@ bool GridGame::CheckWinConditions()
 			PlayersAlive--;
 	}
 
+	// Too many players left
 	if (PlayersAlive >= 2)
-		return false;
+		return true;
 
+	// Check draw
 	if (PlayersAlive == 0)
 	{
 		std::string Message = "The game ended in draw.";
@@ -259,12 +254,13 @@ bool GridGame::CheckWinConditions()
 
 		std::cout << Message << std::endl;
 
-		return true;
+		return false;
 	}
 
+	// Check win
 	if (PlayersAlive == 1)
 	{
-		for (auto& Player : m_Players)
+		for (const auto& Player : m_Players)
 		{
 			if (Player.second.m_WorkersAlive > 0)
 			{
@@ -282,7 +278,7 @@ bool GridGame::CheckWinConditions()
 			}
 		}
 
-		return true;
+		return false;
 	}
 
 	return false;
@@ -290,8 +286,9 @@ bool GridGame::CheckWinConditions()
 
 void GridGame::StartNewTurn()
 {
+	// Increment turn player
 	PlayerIterator PlayerNextIt;
-	PlayerIterator PlayerIt = GetPlayerFromClient(m_TurnPlayer.m_Client);
+	PlayerIterator PlayerIt = GetPlayerByClient(m_TurnPlayer.m_Client);
 
 	if (PlayerIt == m_Players.end())
 		PlayerNextIt = m_Players.begin();
@@ -304,12 +301,15 @@ void GridGame::StartNewTurn()
 	m_TurnPlayer = PlayerNextIt->second;
 	m_TurnTimeout = std::time(nullptr) + 10;
 
-	for (auto& Player : m_Players)
+	// Send updated grid data to players
+	for (const auto& Player : m_Players)
 	{
 		SendClientUpdate(Player.second);
 	}
 
 	m_TurnEnded = false;
+	m_FieldUpdates.clear();
+	m_FutureFieldUpdates.clear();
 }
 
 void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
@@ -328,6 +328,8 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 		for (uint32_t y = 0; y < m_GridHeight; y++)
 		{
 			Field* pField = &m_Grid[x][y];
+
+			// Reset field
 			pField->m_WasMoved = false;
 
 			// Set new worker count
@@ -339,30 +341,59 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 	m_TurnEnded = true;
 }
 
-void GridGame::SendClientUpdate(Player Player)
-{
-	std::vector<PacketStruct> FoodUpdates;
-	std::vector<PacketStruct> FieldUpdates;
 
-	for (const Move& Move : m_Moves)
+void GridGame::SendPlayerData(Player APlayer)
+{
+	// Send other players data to player
+	std::vector<PacketStruct> Players;
+	for (const std::pair<uint8_t, Player>& Player : m_Players)
 	{
-		FieldUpdates.push_back(
+		Players.push_back(
 			{
-				(uint8_t)Move.X,
-				(uint8_t)Move.Y,
-				(uint8_t)Move.Field.m_FieldType,
-				(uint8_t)Move.Field.m_OwnerID,
-				(uint16_t)Move.Field.m_Power
+				(uint8_t)Player.second.m_ID,
+				(std::string)Player.second.m_Name,
 			}
 		);
 	}
 
-	for (const FoodUpdate& Food : m_FoodUpdates)
+	Packet Packet(NetDataType::NET_GAME_START);
+	Packet.push_back(m_GridWidth);
+	Packet.push_back(m_GridHeight);
+	Packet.push_back(Players);
+
+	m_pServer->GetSerializer()->SerializeSend(
+		Packet,
+		APlayer.m_Client.m_Socket
+	);
+}
+
+void GridGame::SendClientUpdate(Player APlayer)
+{
+	std::vector<PacketStruct> FoodUpdates;
+	std::vector<PacketStruct> FieldUpdates;
+
+	for (const FieldUpdate& Update : m_FutureFieldUpdates)
 	{
+		if (Update.Field.m_FieldType != Field::FieldType::FIELD_FOOD)
+			continue;
+
 		FoodUpdates.push_back(
 			{
-				(uint8_t)Food.X,
-				(uint8_t)Food.Y
+				(uint8_t)Update.X,
+				(uint8_t)Update.Y,
+			}
+		);
+	}
+
+	for (const FieldUpdate& Update : m_FieldUpdates)
+	{
+		FieldUpdates.push_back(
+			{
+				(uint8_t)Update.X,
+				(uint8_t)Update.Y,
+				(uint8_t)Update.Field.m_FieldType,
+				(uint8_t)Update.Field.m_OwnerID,
+				(uint16_t)Update.Field.m_Power
 			}
 		);
 	}
@@ -370,21 +401,19 @@ void GridGame::SendClientUpdate(Player Player)
 	Packet Packet(NetDataType::NET_GAME_DATA);
 	Packet.push_back(m_TurnPlayer.m_ID);
 	Packet.push_back(m_TurnTimeout);
-	Packet.push_back(m_GridWidth);
-	Packet.push_back(m_GridHeight);
 	Packet.push_back(FieldUpdates);
 	Packet.push_back(FoodUpdates);
 
 	m_pServer->GetSerializer()->SerializeSend(
 		Packet,
-		Player.m_Client.m_Socket
+		APlayer.m_Client.m_Socket
 	);
 }
 
 void GridGame::Kick(Client Client)
 {
 	// Check if this client is actually a player
-	PlayerIterator PlayerIt = GetPlayerFromClient(Client);
+	PlayerIterator PlayerIt = GetPlayerByClient(Client);
 	if (PlayerIt == m_Players.end())
 		return;
 
@@ -417,7 +446,7 @@ void GridGame::Receive(Packet Data, Client Client)
 	}
 
 	// Check if this client is actually a player
-	auto PlayerIt = GetPlayerFromClient(Client);
+	auto PlayerIt = GetPlayerByClient(Client);
 	if (PlayerIt == m_Players.end())
 		return;
 
@@ -438,7 +467,7 @@ void GridGame::Receive(Packet Data, Client Client)
 void GridGame::Disconnect(Client Client)
 {
 	// Check if this client is actually a player
-	auto PlayerIt = GetPlayerFromClient(Client);
+	auto PlayerIt = GetPlayerByClient(Client);
 	if (PlayerIt == m_Players.end())
 		return;
 
@@ -491,7 +520,7 @@ void GridGame::HandleLeave(PlayerIterator PlayerIt)
 void GridGame::HandleConnect(Packet PacketIn, Client Client)
 {
 	Player APlayer;
-	PlayerIterator PlayerIt = GetPlayerFromIP(Client.m_IP);
+	PlayerIterator PlayerIt = GetPlayerByIP(Client.m_IP);
 	bool IsReconnect = (PlayerIt != m_Players.end()) && PlayerIt->second.m_HasLostConnection;
 
 	if (!IsReconnect && m_GameRunning)
@@ -546,6 +575,9 @@ void GridGame::HandleConnect(Packet PacketIn, Client Client)
 	// Broadcast
 	for (const auto& Player : m_Players)
 	{
+		if (Player.second == APlayer)
+			continue;
+
 		m_pServer->GetSerializer()->SerializeSend(
 			Broadcast,
 			Player.second.m_Client.m_Socket
@@ -554,6 +586,7 @@ void GridGame::HandleConnect(Packet PacketIn, Client Client)
 
 	if (IsReconnect)
 	{
+		SendPlayerData(APlayer);
 		SendClientUpdate(APlayer);
 	}
 
@@ -584,12 +617,12 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 	{
 		int16_t Power = pOriginField->m_Power;
 
-		pOriginField->m_Power = (int)std::floor(Power / 2.0);
-
 		pMover->m_FieldType = Field::FieldType::FIELD_WORKER;
 		pMover->m_OwnerID = pOriginField->m_OwnerID;
 		pMover->m_Power = (int)std::ceil(Power / 2.0);
 		pMover->m_WasMoved = true;
+		pOriginField->m_Power = (int)std::floor(Power / 2.0);
+		m_FieldUpdates.push_back(FieldUpdate(FromX, FromY, *pOriginField));
 	}
 	else 
 	{
@@ -600,16 +633,14 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 
 		// Reset the field we come from
 		pOriginField->Reset();
-
-		m_Moves.push_back(Move(ToX, ToY, *pOriginField));
+		m_FieldUpdates.push_back(FieldUpdate(FromX, FromY, *pOriginField));
 	}
 
 	if (pTargetField->m_FieldType == Field::FieldType::FIELD_EMPTY)
 	{
 		// Move
 		*pTargetField = *pMover;
-
-		m_Moves.push_back(Move(ToX, ToY, *pTargetField));
+		m_FieldUpdates.push_back(FieldUpdate(ToX, ToY, *pTargetField));
 
 		return;
 	}
@@ -621,8 +652,7 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 		pTargetField->m_Power = pMover->m_Power + pTargetField->m_Power;
 		pTargetField->m_FieldType = Field::FieldType::FIELD_WORKER;
 		pTargetField->m_WasMoved = true;
-
-		m_Moves.push_back(Move(ToX, ToY, *pTargetField));
+		m_FieldUpdates.push_back(FieldUpdate(ToX, ToY, *pTargetField));
 
 		return;
 	}
@@ -634,8 +664,7 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 			// Move and merge
 			pMover->m_Power += pTargetField->m_Power;
 			*pTargetField = *pMover;
-
-			m_Moves.push_back(Move(ToX, ToY, *pTargetField));
+			m_FieldUpdates.push_back(FieldUpdate(ToX, ToY, *pTargetField));
 
 			return;
 		}
@@ -644,8 +673,7 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 		{
 			// Kill eachother
 			pTargetField->Reset();
-
-			m_Moves.push_back(Move(ToX, ToY, *pTargetField));
+			m_FieldUpdates.push_back(FieldUpdate(ToX, ToY, *pTargetField));
 
 			return;
 		}
@@ -653,10 +681,9 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 		if (pMover->m_Power > pTargetField->m_Power)
 		{
 			// Win fight and "gain" 1 power
+			pMover->m_Power = (pMover->m_Power - pTargetField->m_Power) + 1;
 			*pTargetField = *pMover;
-			pTargetField->m_Power = (pMover->m_Power - pTargetField->m_Power) + 1;
-
-			m_Moves.push_back(Move(ToX, ToY, *pTargetField));
+			m_FieldUpdates.push_back(FieldUpdate(ToX, ToY, *pTargetField));
 
 			return;
 		}
@@ -665,8 +692,7 @@ void GridGame::HandleMove(Packet Packet, PlayerIterator PlayerIt)
 		{
 			// Lose fight and enemy "gain" 1 power
 			pTargetField->m_Power = (pTargetField->m_Power - pMover->m_Power) + 1;
-
-			m_Moves.push_back(Move(ToX, ToY, *pTargetField));
+			m_FieldUpdates.push_back(FieldUpdate(ToX, ToY, *pTargetField));
 
 			return;
 		}
@@ -702,7 +728,7 @@ bool GridGame::IsValidMove(bool Split, int FromX, int FromY, int ToX, int ToY, P
 	return true;
 }
 
-PlayerIterator GridGame::GetPlayerFromIP(std::string IP)
+PlayerIterator GridGame::GetPlayerByIP(std::string IP)
 {
 	auto It = std::find_if(
 		m_Players.begin(),
@@ -713,7 +739,7 @@ PlayerIterator GridGame::GetPlayerFromIP(std::string IP)
 	return It;
 }
 
-PlayerIterator GridGame::GetPlayerFromClient(Client Client)
+PlayerIterator GridGame::GetPlayerByClient(Client Client)
 {
 	auto It = std::find_if(
 		m_Players.begin(), 

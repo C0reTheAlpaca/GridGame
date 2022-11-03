@@ -36,6 +36,9 @@
     <ClInclude Include="Packet.h">
       <Filter>Files</Filter>
     </ClInclude>
+    <ClInclude Include="GameNetInstructions.h">
+      <Filter>Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Server.cpp">

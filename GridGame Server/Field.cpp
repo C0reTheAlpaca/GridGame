@@ -3,7 +3,7 @@
 
 Field::Field()
 {
-	m_FieldType = FIELD_EMPTY;
+	m_FieldType = FieldType::FIELD_EMPTY;
 	m_OwnerID = FIELD_NO_OWNER;
 	m_Power = 0;
 	m_WasMoved = false;

@@ -29,6 +29,7 @@
   <ItemGroup>
     <ClInclude Include="Client.h" />
     <ClInclude Include="Field.h" />
+    <ClInclude Include="GameNetInstructions.h" />
     <ClInclude Include="GridGame.h" />
     <ClInclude Include="Instruction.h" />
     <ClInclude Include="Packet.h" />

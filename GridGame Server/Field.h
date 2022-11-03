@@ -6,7 +6,7 @@
 class Field
 {
 public:
-	enum FieldType
+	enum class FieldType : int
 	{
 		FIELD_EMPTY,
 		FIELD_FOOD,
@@ -23,16 +23,9 @@ public:
 	bool m_WasMoved;
 };
 
-
-struct Move
+struct FieldUpdate
 {
 	uint32_t X;
 	uint32_t Y;
 	Field Field;
-};
-
-struct FoodUpdate
-{
-	uint32_t X;
-	uint32_t Y;
 };

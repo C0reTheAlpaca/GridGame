@@ -32,7 +32,7 @@ void Serializer::SerializeSend(Packet Packet, SOCKET Socket)
 	// Calculate total bytes of packet
 	std::size_t TotalPacketBytes = sizeof(Packet.m_Magic);
 
-	for (auto It = Packet.m_Data   .begin(); It != Packet.m_Data.end(); It++)
+	for (auto It = Packet.m_Data.begin(); It != Packet.m_Data.end(); It++)
 	{
 		std::size_t VariantIndex = It->index();
 
@@ -126,18 +126,21 @@ Serializer::State Serializer::Deserialize(DynamicBuffer* pBuffer, Packet* pPacke
 		int Index = (int)std::distance(Types.begin(), It);
 
 		// Check if begin of structure
-		if (*It == InstructionType::TYPE_UINT32 &&
-			Instruction.m_StructLookup.contains(Index))
+		if (Instruction.m_StructLookup.contains(Index))
 		{
-			// Deserialize structure size
+			// Deserialize structure count
 			uint32_t StructCount = DeserializeUInt32();
 			pPacket->m_Data.push_back(StructCount);
 
+			// Get instructions for struct deserialization
+			std::vector<InstructionType> Struct = Instruction.m_StructLookup[Index];
+
+			// Deserialize struct
 			for (uint32_t i = 0; i < StructCount; i++)
 			{
-				for (InstructionType Type : Instruction.m_StructLookup[Index])
+				for (InstructionType Type : Struct)
 				{
-					PushData(*It, pPacket);
+					PushData(Type, pPacket);
 
 					/// Check if data is incomplete
 					if (m_State == State::STATE_INCOMPLETE)
