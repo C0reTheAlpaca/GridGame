@@ -25,7 +25,7 @@ public:
 
 struct FieldUpdate
 {
-	uint32_t X;
-	uint32_t Y;
+	uint32_t x;
+	uint32_t y;
 	Field Field;
 };

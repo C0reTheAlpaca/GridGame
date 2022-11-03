@@ -143,23 +143,26 @@ void GridGame::PregenerateFood()
 		return;
 	
 	// Integrate Pregenerate food of last update
-	for (FieldUpdate& FieldUpdate : m_FutureFieldUpdates)
+	for (FieldUpdate& Update : m_FutureFieldUpdates)
 	{
-		if (FieldUpdate.Field.m_FieldType != Field::FieldType::FIELD_FOOD)
+		if (Update.Field.m_FieldType != Field::FieldType::FIELD_FOOD)
 			continue;
 
-		Field* pField = &m_Grid[FieldUpdate.X][FieldUpdate.Y];
+		Field* pField = &m_Grid[Update.x][Update.y];
 
 		if (pField->m_FieldType == Field::FieldType::FIELD_WORKER)
 		{
-			pField->m_Power += FieldUpdate.Field.m_Power;
-			FieldUpdate.Field = *pField;
+			pField->m_Power += Update.Field.m_Power;
+			Update.Field = *pField;
 		}
 		else
 		{
 			*pField = Field(Field::FieldType::FIELD_FOOD, FIELD_NO_OWNER, 1);
+			m_FieldUpdates.push_back(FieldUpdate(Update.x, Update.y, *pField));
 		}
 	}
+
+	m_FutureFieldUpdates.clear();
 
 	// Pregenerate food for next update unless first turn
 	for (int i = 0; i < m_Players.size() * 2; i++)
@@ -180,13 +183,14 @@ void GridGame::PregenerateFood()
 		if (m_NewGame)
 		{
 			// Integrate to field directly
-			*pField = Field(Field::FieldType::FIELD_FOOD, 0, 1);
+			*pField = Field(Field::FieldType::FIELD_FOOD, FIELD_NO_OWNER, 1);
 			m_FieldUpdates.push_back(FieldUpdate(x, y, *pField));
 		}
 		else 
 		{
 			// Save for later integration
-			m_FutureFieldUpdates.push_back(FieldUpdate(x, y, *pField));
+			Field Food(Field::FieldType::FIELD_FOOD, FIELD_NO_OWNER, 1);
+			m_FutureFieldUpdates.push_back(FieldUpdate(x, y, Food));
 		}
 	}
 }
@@ -309,7 +313,6 @@ void GridGame::StartNewTurn()
 
 	m_TurnEnded = false;
 	m_FieldUpdates.clear();
-	m_FutureFieldUpdates.clear();
 }
 
 void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
@@ -340,7 +343,6 @@ void GridGame::HandleEndTurn(PlayerIterator PlayerIt)
 
 	m_TurnEnded = true;
 }
-
 
 void GridGame::SendPlayerData(Player APlayer)
 {
@@ -379,8 +381,8 @@ void GridGame::SendClientUpdate(Player APlayer)
 
 		FoodUpdates.push_back(
 			{
-				(uint8_t)Update.X,
-				(uint8_t)Update.Y,
+				(uint8_t)Update.x,
+				(uint8_t)Update.y,
 			}
 		);
 	}
@@ -389,8 +391,8 @@ void GridGame::SendClientUpdate(Player APlayer)
 	{
 		FieldUpdates.push_back(
 			{
-				(uint8_t)Update.X,
-				(uint8_t)Update.Y,
+				(uint8_t)Update.x,
+				(uint8_t)Update.y,
 				(uint8_t)Update.Field.m_FieldType,
 				(uint8_t)Update.Field.m_OwnerID,
 				(uint16_t)Update.Field.m_Power

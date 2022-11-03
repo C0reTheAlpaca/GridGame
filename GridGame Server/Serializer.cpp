@@ -183,7 +183,7 @@ void Serializer::PushData(InstructionType Type, Packet* pPacket)
 
 int8_t Serializer::DeserializeInt8()
 {
-	int8_t Value = DeserializeUInt8();
+	uint8_t Value = DeserializeUInt8();
 	return *reinterpret_cast<int8_t*>(&Value);
 }
 
